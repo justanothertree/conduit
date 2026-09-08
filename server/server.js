@@ -55,7 +55,7 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(cors({
-  origin: 'https://krazay17.github.io/conduit/',
+  origin: 'https://krazay17.github.io',
   methods: ['GET', 'POST'],
   credentials: true
 }));
@@ -63,7 +63,7 @@ app.use(cors({
 const io = new Server(server, {
   cors: {
     origin: [
-      "https://krazay17.github.io/conduit/",
+      "https://krazay17.github.io",
       "http://localhost:5173",
       "http://10.0.0.194:5173",
     ],
