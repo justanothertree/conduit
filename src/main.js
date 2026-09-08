@@ -18,9 +18,6 @@ import Level8 from './scenes/Level8.js';
 import { setupDiscordWindow } from './domStuff/DiscordStuff.js';
 import setupChat from './domStuff/Chat.js';
 
-/// <reference path="../types/phaser.d.ts" />
-
-
 const config = {
   type: Phaser.AUTO,
   width: window.innerWidth,
