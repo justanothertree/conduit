@@ -14,7 +14,7 @@ import cors from 'cors';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const BIN_ID = '685dfd338960c979a5b22637';
-const API_KEY = ' $2a$10$T5HrVvdoM.0KzR3OnpsdTOGfioI9cIoyAckz3N4XOhTmdRWFNnMn.';
+const API_KEY = '$2a$10$T5HrVvdoM.0KzR3OnpsdTOGfioI9cIoyAckz3N4XOhTmdRWFNnMn.';
 const BASE_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
 
@@ -55,7 +55,7 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(cors({
-  origin: 'https://conduit.bar',
+  origin: 'https://krazay17.github.io/conduit/',
   methods: ['GET', 'POST'],
   credentials: true
 }));
@@ -63,7 +63,7 @@ app.use(cors({
 const io = new Server(server, {
   cors: {
     origin: [
-      "https://conduit.bar",
+      "https://krazay17.github.io/conduit/",
       "http://localhost:5173",
       "http://10.0.0.194:5173",
     ],
