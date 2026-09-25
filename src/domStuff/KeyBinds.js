@@ -35,6 +35,7 @@ export function addButton(imgSrc, key, action = 'Interact', row = 1, col = 1, wi
     const button = document.createElement('div');
     button.className = 'kb-button';
     button.style.width = wid;
+    button.dataset.action = action;
 
     button.style.gridRow = row;
     button.style.gridColumn = col;
@@ -95,6 +96,21 @@ export function addButton(imgSrc, key, action = 'Interact', row = 1, col = 1, wi
     window.addEventListener('mouseup', (e) => {
         inActive?.();
     });
+
+    // --- Touch support (multi-touch): each finger tracked by identifier so
+    // holding Left with one thumb while tapping Jump with another works.
+    const activeTouches = new Set();
+    button.addEventListener('touchstart', (e) => {
+        e.preventDefault(); // suppress compat mouse events + scroll/zoom
+        for (const t of e.changedTouches) activeTouches.add(t.identifier);
+        active?.();
+    }, { passive: false });
+    const releaseTouch = (e) => {
+        for (const t of e.changedTouches) activeTouches.delete(t.identifier);
+        if (activeTouches.size === 0) inActive?.();
+    };
+    button.addEventListener('touchend', releaseTouch);
+    button.addEventListener('touchcancel', releaseTouch);
 
     return button;
 }

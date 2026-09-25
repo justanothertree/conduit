@@ -9,6 +9,7 @@
     overflow: hidden;
     height: max-content;
     width: max-content;
+    touch-action: none;
 }
 
 .kb-grid {
@@ -25,6 +26,10 @@
     height: 60px;
     grid-row: auto;
     grid-column: auto;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .kb-image {
@@ -63,4 +68,45 @@
     text-shadow: black 2px 2px 1px;
     text-align: center;
     pointer-events: none;
+}
+
+/* --- Phone layout: thumb-friendly compact controls --- */
+@media (max-width: 760px) {
+    .kb-grid {
+        grid-template-columns: repeat(6, 54px);
+        padding-left: 0;
+        gap: 4px;
+    }
+
+    .kb-button {
+        width: 54px;
+        height: 54px;
+    }
+
+    .kb-image {
+        height: 44px;
+    }
+
+    .kb-label {
+        font-size: 16px;
+    }
+
+    .kb-info {
+        display: none;
+    }
+
+    /* left thumb: movement | right thumb: actions */
+    .kb-button[data-action="Left"]     { grid-row: 1 !important; grid-column: 1 !important; }
+    .kb-button[data-action="Right"]    { grid-row: 1 !important; grid-column: 2 !important; }
+    .kb-button[data-action="Jump"]     { grid-row: 1 !important; grid-column: 5 !important; }
+    .kb-button[data-action="Dash"]     { grid-row: 1 !important; grid-column: 6 !important; }
+    .kb-button[data-action="Crouch"]   { grid-row: 2 !important; grid-column: 1 !important; }
+    .kb-button[data-action="Heal"]     { grid-row: 2 !important; grid-column: 2 !important; }
+    .kb-button[data-action="Interact"] { grid-row: 2 !important; grid-column: 5 !important; }
+    .kb-button[data-action="Settings"] { grid-row: 2 !important; grid-column: 6 !important; }
+
+    /* menu-ish buttons hidden on phone to keep the bar compact */
+    .kb-button[data-action="Inventory"],
+    .kb-button[data-action="Home"],
+    .kb-button[data-action="Respawn"] { display: none !important; }
 }
