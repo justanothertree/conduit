@@ -5,6 +5,10 @@ import ChatBubble from "./chatBubble.js";
 import PlayerContainer from "./playerContainer.js";
 import SoundUtil, { playSound } from "./soundUtils.js";
 import { getChatting } from "../domStuff/Chat.js";
+import { setupPlayerStates } from "./playerStuff/playerStates.js";
+import { playerTakeDamage, playerAdjustHealth, playerUpdateHealth } from "./playerStuff/playerHealth.js";
+import { playerSyncGhost, playerSyncNetwork, playerSpectatePlayer } from "./playerStuff/playerNetwork.js";
+import { playerHandleInput, playerDecideState, playerGetInput, playerSetState, playerWalkLerp } from "./playerStuff/playerInput.js";
 
 export default class Player extends Phaser.Physics.Arcade.Sprite {
     constructor(scene, x, y) {
@@ -286,22 +290,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     spectatePlayer(spectate = false, index = 0) {
-        if (!spectate) {
-            this.spectating = false;
-            this.scene.cameras.main.startFollow(this, false, .05, .05);
-            return;
-        }
-        if (this.network.otherPlayers) {
-            const numberofPlayers = Object.keys(this.network.otherPlayers).length;
-            this.spectateIndex = Phaser.Math.Clamp(this.spectateIndex + index, 0, numberofPlayers);
-            const otherPlayer = Object.values(this.network.otherPlayers)[this.spectateIndex] || Object.values(this.network.otherPlayers)[0];
-            if (otherPlayer) {
-                this.scene.cameras.main.startFollow(otherPlayer, false, .1, .1)
-                this.spectating = true;
-            } else {
-                this.spectatePlayer(false);
-            }
-        }
+        return playerSpectatePlayer(this, spectate, index);
     }
 
     respawnPlayer() {
@@ -363,651 +352,32 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     handleInput(time, delta) {
-        if (!this.body || !this.body.velocity) return;
-        if (this.chatting) {
-            this.setState('idle');
-            this.states[this.currentState].update(delta, {}, time);
-        }
-
-        if (!this.stunned && this.alive && !this.chatting) {
-
-            let input = this.getInput();
-
-            if (getChatting()) {
-                input = {};
-            }
-            if ((input.left || input.right) && this.spectating) {
-                this.spectatePlayer(false);
-            }
-            if (input.left && !input.right) {
-                this.flipX = true;
-                this.dir = -1;
-            } else if (input.right && !input.left) {
-                this.flipX = false;
-                this.dir = 1;
-            }
-
-            this.decideState(input, delta);       // decide what state to be in based on input
-            this.states[this.currentState].update(delta, input, time); // update current state logic
-            if ((this.slamCD || this.slidePower < 600) && !this.isSliding && !this.isCrouch) {
-                this.slidePower = Math.min(600, this.slidePower += delta);
-                this.slamCD = Math.max(0, this.slamCD -= delta);
-            }
-        }
-
-        this.animChooser(delta);
+        return playerHandleInput(this, time, delta);
     }
 
     decideState(input, delta) {
-        const { left, right, jump, dash, crouch, heal, slam } = input;
-
-        if (dash && this.canDash && !this.isDashing) return this.setState('dash', input);
-        if ((slam && !this.slamCD && !this.body.blocked.down)) return this.setState('slam', input);
-        if (jump && this.canJump) return this.setState('jump', input);
-        if (heal) return this.setState('heal');
-        if ((crouch)) return this.setState('crouch', input);
-        if (this.wallRunning) return this.setState('wallRun', input);
-        if (this.wallSlide) return this.setState('wallSlide', input);
-        if (!this.body.blocked.down) return this.setState('fall', input);
-        if (left || right) return this.setState('walk', input);
-        this.meditateTimer += delta / 1000;
-        if (this.meditateTimer > 3) return this.setState('meditate');
-        return this.setState('idle', input);
+        return playerDecideState(this, input, delta);
     }
 
     getInput() {
-        return {
-            left: this.controls.left.isDown || document.leftButton.isClicked,
-            right: this.controls.right.isDown || document.rightButton.isClicked,
-            jump: this.controls.jump.isDown || document.jumpButton.isClicked,
-            dash: this.controls.dash.isDown || document.dashButton.isClicked,
-            crouch: this.controls.down.isDown || document.crouchButton.isClicked,
-            heal: this.controls.up.isDown || document.healButton.isClicked,
-            slam: Phaser.Input.Keyboard.JustDown(this.controls.down),
-        };
+        return playerGetInput(this);
     }
 
     setState(newState, input) {
-        if (!this.scene) return;
-        if (this.scene.time.now < this.stateLockout) return;
-        if (newState === this.currentState) return;
-
-        if (newState === 'idle' && !this.body.blocked.down) {
-            newState = 'fall';
-        }
-        this.states[this.currentState].exit();
-        this.currentState = newState;
-        this.states[this.currentState].enter(input);
-        console.log(this.currentState);
+        return playerSetState(this, newState, input);
     }
 
     walkLerp(delta, a, modify) {
-        if (!modify) modify = this.body.blocked.down ? .5 : .1;
-
-        modify = Phaser.Math.Clamp(modify * (delta / 16.666), 0, 1);
-        return Phaser.Math.Linear(this.body.velocity.x, a, modify);
+        return playerWalkLerp(this, delta, a, modify);
     }
 
     setupStates() {
-        this.stateLockout = 0;
-        this.currentState = 'idle';
-        this.slidePower = 0;
-        this.slamCD = 0;
-        this.healCD = 0;
-        this.wallRunLeft = 540;
-        this.wallRunRight = 540;
-        this.dashDuration = 250;
-
-        this.wallrunDecayRate = .5;
-        // idle: {
-        //     enter: () => { },
-        //     update: () => { },
-        //     exit: () => { },
-        // },
-
-        function lerp(start, end, t) {
-            return start + (end - start) * t;
-        }
-
-        this.states = {
-            idle: {
-                enter: () => {
-                    this.resetJump();
-                    this.tryUncrouch();
-                    this.isSlamming = 0;
-                    this.meditateTimer = 0;
-                },
-                update: (delta) => {
-                    this.setVelocityX(this.walkLerp(delta, 0));
-                },
-                exit: () => { },
-            },
-
-            meditate: {
-                enter: () => {
-                    this.isMeditating = 1;
-                    // Create particle manager
-                    this.meditateEmitter = this.scene.add.particles(this.x, this.y, 'greenFlame', {
-                        speed: 100,
-                        lifespan: 500,
-                        alpha: .35,
-                        scale: { start: 1, end: 0 },
-                        blendMode: 'ADD',
-                    });
-
-                },
-                update: (delta) => {
-                    this.setVelocityX(this.walkLerp(delta, 0))
-                    this.healCD += delta / 500;
-
-                    if (this.healCD >= 1) {
-                        if (this.health >= this.healthMax) return;
-                        this.healCD = 0;
-                        this.updateHealth(1);
-                    }
-                },
-                exit: () => {
-                    this.meditateEmitter.stop();
-                    this.isMeditating = 0;
-                    this.meditateTimer = 0;
-                },
-            },
-
-            walk: {
-                enter: () => {
-                    this.resetJump();
-                    this.tryUncrouch();
-                    this.isSlamming = 0;
-                    this.isWalking = true;
-                    if (!this.network.socket.connected) {
-                        this.network.socket.connect();
-                    }
-                },
-                update: (delta, input) => {
-                    const { left, right } = input;
-                    const dir = this.speed * this.dir;
-                    this.tryUncrouch();
-
-                    this.setVelocityX(this.walkLerp(delta, dir));
-                },
-                exit: () => {
-                    this.isWalking = false;
-                },
-            },
-
-            fall: {
-                enter: () => {
-                    this.canJump = false;
-                    this.falling = true;
-                },
-                update: (delta, input) => {
-                    const { left, right, jump } = input;
-                    const dir = (left ? -1 : right ? 1 : 0) * (this.speed);
-                    if ((left && !right && (this.body.velocity.x > -250)) || (!left && right && (this.body.velocity.x < 250))) {
-                        this.setVelocityX(this.walkLerp(delta, dir, .1));
-                    } else {
-                        this.setVelocityX(this.walkLerp(delta, 0, .005));
-                    }
-
-                    this.tryUncrouch();
-                    if (this.body.velocity.y >= 0) {
-                        this.reachApex = true;
-                    }
-                    // jump && 
-                    if ((this.body.blocked.left || this.body.blocked.right)) {
-                        this.setState('wallSlide', input);
-                    }
-
-                },
-                exit: () => {
-                    this.falling = false;
-                    this.isMantling = false;
-                    this.setMaxVelocity(1500, 1500);
-                },
-            },
-
-            wallSlide: {
-                enter: () => {
-                    this.wallSlide = true;
-                },
-                update: (delta, input) => {
-                    const { left, right, jump } = input;
-                    const dir = (left ? -1 : right ? 1 : 0) * (this.speed);
-                    if ((left && !right) || (!left && right)) {
-                        this.setVelocityX(this.walkLerp(delta, dir, .1));
-                    } else {
-                        if (this.body.blocked.left) {
-                            this.setVelocityX(-1);
-                            this.flipX = true;
-                        }
-                        if (this.body.blocked.right) {
-                            this.setVelocityX(1);
-                            this.flipX = false;
-                        }
-                        // if (jump) {
-                        //     const jumpHeight = leftJump ? this.wallRunLeft : this.wallRunRight;
-                        //     this.setState('wallJump', { left: leftJump, right: !leftJump, height: jumpHeight });
-                        // }
-                    }
-                    if (this.body.velocity.y > 350) {
-                        this.setVelocityY(lerp(this.body.velocity.y, 350, .035));
-                    }
-                    if (jump) {
-                        this.setState('wallRun', input);
-                    }
-                    if ((!this.body.blocked.left && !this.body.blocked.right) || this.body.blocked.down) {
-                        this.wallSlide = false;
-                    }
-                },
-                exit: () => {
-                    this.wallSlide = false;
-                },
-            },
-
-            wallRun: {
-                enter: (input) => {
-                    const { left, right } = input;
-                    this.wallRunning = true;
-                    this.stopRun = false;
-                    const xSpeed = Math.min(800, Math.abs(this.body.velocity.x));
-
-                    if (this.body.blocked.left) {
-                        if (this.wallRunLeft < (-this.body.velocity.y)) {
-                            this.wallRunLeft = (-this.body.velocity.y)
-                        } else if (this.wallRunLeft < xSpeed) {
-                            this.wallRunLeft = Math.min(xSpeed, 680);
-                        }
-                        this.wallRunRight = 540;
-                        this.wallJumpRightMin = 540;
-                    }
-
-                    if (this.body.blocked.right) {
-                        if (this.wallRunRight < (-this.body.velocity.y)) {
-                            this.wallRunRight = (-this.body.velocity.y)
-                        } else if (this.wallRunRight < xSpeed) {
-                            this.wallRunRight = Math.min(xSpeed, 680);
-                        }
-                        this.wallRunLeft = 540;
-                        this.wallJumpLeftMin = 540;
-                    }
-                    this.wallrunDecayRate = .5;
-
-                },
-                update: (delta, input, time) => {
-                    const { left, right, jump } = input;
-
-                    //const dir = (left ? -1 : right ? 1 : 0) * (this.speed);
-
-                    // if ((left && !right) || (!left && right)) {
-                    //     this.setVelocityX(dir);
-                    // } else {
-                    //     this.setVelocityX(this.walkLerp(delta, 0, .02));
-                    // }
-
-                    if (this.body.blocked.left) {
-                        this.setVelocityY(-this.wallRunLeft);
-                        this.setVelocityX(-1);
-
-                        this.wallRunLeft = Math.max(-200, this.wallRunLeft - (this.wallrunDecayRate * delta));
-                        this.bufferLeftWallJump = this.scene.time.now + 55;
-                        this.bufferRightWallJump = 0;
-
-                        const leftBuffer = true;
-                        if (right || !jump) {
-                            this.setState('wallJump', { left: leftBuffer, right: false, height: this.wallRunLeft })
-                        }
-
-                        if (this.wallRunLeft <= 0) {
-                            this.wallSlide = true;
-                        }
-                        // if (!left && !this.stopRun) {
-                        //     this.stopRun = true;
-                        //     this.wallRunLeft = 0;
-                        // }
-
-                        // if (!left && !this.stopRun) {
-                        //     this.stopRun = true;
-                        //     this.wallRunLeft = this.wallRunLeft > 0 ? 0 : this.wallRunLeft;
-                        //     //this.wallrunDecayRate = 3;
-                        // }
-                    }
-                    if (this.body.blocked.right) {
-                        this.setVelocityY(-this.wallRunRight);
-                        this.setVelocityX(1);
-                        this.wallRunRight = Math.max(-200, this.wallRunRight - (this.wallrunDecayRate * delta));
-                        this.bufferRightWallJump = this.scene.time.now + 55;
-                        this.bufferLeftWallJump = 0;
-
-                        const rightBuffer = true;
-                        if (left || !jump) {
-                            this.setState('wallJump', { left: false, right: rightBuffer, height: this.wallRunRight })
-                        }
-
-                        if (this.wallRunRight <= 0) {
-                            this.wallSlide = true;
-                        }
-                        // if (!right && !this.stopRun) {
-                        //     this.stopRun = true;
-                        //     this.wallRunRight = 0;
-                        // }
-
-                        // if (!right && !this.stopRun) {
-                        //     this.stopRun = true;
-                        //     this.wallRunRight = this.wallRunRight > 0 ? 0 : this.wallRunRight;
-                        //     //this.wallrunDecayRate = 3;
-                        // }
-                    }
-                    if (this.body.blocked.up) {
-                        this.wallRunLeft = 0;
-                        this.wallRunRight = 0;
-                        this.wallRunning = false;
-                        this.wallSlide = true;
-                    }
-
-                    const leftBuffer = this.bufferLeftWallJump > this.scene.time.now;
-                    const rightBuffer = this.bufferRightWallJump > this.scene.time.now
-
-                    if ((right && !left) && rightBuffer && !this.body.blocked.right) {
-                        this.setVelocityY(0);
-                        this.setVelocityX(250);
-                        this.isMantling = this.scene.time.now;
-                    }
-                    if ((left && !right) && leftBuffer && !this.body.blocked.left) {
-                        this.setVelocityY(0);
-                        this.setVelocityX(-250);
-                        this.isMantling = this.scene.time.now;
-                    }
-                    if (!this.body.blocked.left && !this.body.blocked.right) {
-                        this.wallRunning = false;
-                    }
-                    // !jump || 
-                    // if (((right && jump) && leftBuffer) || ((left && jump) && rightBuffer)) {
-                    //     const jumpHeight = leftBuffer ? this.wallRunLeft : this.wallRunRight;
-                    //     this.setState('wallJump', { left: leftBuffer, right: rightBuffer, height: jumpHeight })
-                    // }
-
-                },
-                exit: () => {
-                    this.wallRunning = false;
-                    this.wallSlide = false;
-                },
-            },
-
-            wallJump: {
-                enter: ({ left, right, height }) => {
-                    this.isWallJumping = true;
-                    this.wallJumpTimer = this.scene.time.now;
-                    this.isMantling = 0;
-                    this.stateLockout = this.scene.time.now + 25;
-
-                    if (right) {
-                        this.setVelocity(-350, Phaser.Math.Clamp(-height, -680, -this.wallJumpRightMin));
-                        this.flipX = true;
-                        this.bufferRightWallJump = 0;
-                        this.wallRunRight /= 2;
-                        this.wallJumpRightMin = 100;
-                        this.dir = -1;
-                    }
-                    if (left) {
-                        this.setVelocity(350, Phaser.Math.Clamp(-height, -680, -this.wallJumpLeftMin));
-                        this.flipX = false;
-                        this.bufferLeftWallJump = 0;
-                        this.wallRunLeft /= 2;
-                        this.wallJumpLeftMin = 100;
-                        this.dir = 1;
-                    }
-                },
-                update: () => { },
-                exit: () => {
-                    this.wallSlide = false;
-                },
-            },
-
-            crouch: {
-                enter: (input) => {
-                    const { left, right } = input;
-                    this.isCrouch = true;
-                    this.hitBoxSize = { y: 180, yo: 70 };
-                    this.setSize(115, 180);
-                    this.setOffset(70, 70);
-
-                    if (this.body.blocked.down && (!left && !right)) {
-                        this.slidePower = 100;
-                    }
-
-                    this.stop();
-                    this.setFrame(6);
-                },
-                update: (delta, input) => {
-                    const { left, right, crouch } = input;
-                    const dir = (left ? -1 : right ? 1 : 0) * (this.speed / 2);
-                    if ((left && !right && (this.body.velocity.x > -250)) || (!left && right && (this.body.velocity.x < 250))) {
-                        this.setVelocityX(this.walkLerp(delta, dir, .1));
-                    } else {
-                        this.setVelocityX(this.walkLerp(delta, 0, .02));
-                    }
-
-                    if (this.body.blocked.down) {
-                        this.resetJump();
-                        this.isSlamming = 0;
-
-                        if ((left || right) && this.slidePower > 100) {
-                            this.setState('slide');
-                            return;
-                        }
-                    }
-                },
-                exit: () => {
-                },
-            },
-
-            slam: {
-                enter: (input) => {
-                    this.isSlamming = this.scene.time.now;
-                    const { left, right } = input;
-                    const move = (left ? -1 : right ? 1 : 0) * (this.speed);
-                    this.slamCD = 800;
-                    this.setVelocity(move * 1.125, Math.max(350, this.body.velocity.y));
-                },
-                update: () => { },
-                exit: () => { },
-            },
-
-            slide: {
-                enter: () => {
-                    const currentSpeed = Math.abs(this.body.velocity.x);
-                    const speed = currentSpeed > this.slidePower ? currentSpeed * this.dir : this.slidePower * this.dir;
-                    this.slidePower = 0;
-
-                    this.isSliding = true;
-                    this.canSlide = false;
-                    this.setVelocityX(speed);
-
-                    this.slideTime = this.scene.time.now + 500;
-                    this.stateLockout = this.slideTime;
-
-                    this.stop();
-                    this.setFrame(9);
-                },
-                update: (delta, input) => {
-                    if (Math.abs(this.body.velocity.x) < 150) {
-                        this.stateLockout = 0;
-                        this.setState('crouch', input);
-                        return;
-                    }
-
-                    if (!input.crouch) {
-                        this.stateLockout = 0;
-                        this.setState('idle');
-                        return;
-                    }
-
-                    if (input.jump && this.canJump && this.body.blocked.down) {
-                        this.stateLockout = 0;
-                        this.setState('jump', input);
-                        return;
-                    }
-
-                    if (this.slideTime <= this.scene.time.now && input.crouch) {
-                        this.stateLockout = 0;
-                        this.setState('crouch', input);
-                        return;
-                    }
-
-
-                    if (input.dash && this.canDash) {
-                        this.stateLockout = 0;
-                        this.setState('dash', input);
-                        return;
-                    }
-                },
-                exit: () => {
-                    this.isSliding = false;
-                },
-            },
-
-            jump: {
-                enter: (input) => {
-                    this.isJumping = true;
-                    this.reachApex = false;
-                    this.jumpPower = 200;
-                    this.jumpMax = 425;
-                    this.isSlamming = 0;
-                    this.setVelocityY(-this.jumpPower);
-                    this.tryUncrouch();
-
-                    this.stop();
-                    this.setFrame(5);
-                },
-                update: (delta, input) => {
-                    const { left, right, jump } = input;
-                    const move = (left ? -1 : right ? 1 : 0) * this.speed;
-                    this.setVelocityY(-this.jumpPower);
-                    this.setVelocityX(this.walkLerp(delta, move, .2))
-                    this.jumpPower += delta * 1.5;
-
-                    if (this.jumpPower >= this.jumpMax) {
-                        this.canJump = false;
-                    }
-                },
-                exit: () => {
-                    this.isJumping = false;
-                    this.canJump = false;
-                },
-            },
-
-            dash: {
-                enter: () => {
-                    this.stateLockout = this.scene.time.now + this.dashDuration;
-
-                    this.canDash = false;
-                    this.canResetDash = false;
-                    this.isDashing = true;
-                    this.iFrame = true;
-                    this.body.setAllowGravity(false);
-                    this.tryUncrouch();
-                    this.wallRunLeft = 540;
-                    this.wallRunRight = 540;
-
-                    this.dashTime = 0;
-                    this.startDash = this.dashSpeed * this.dir;
-                    this.endDash = this.startDash / 3;
-
-                    this.thisDashCooldownTimer = this.scene.time.addEvent({
-                        delay: 650,
-                        callback: () => {
-                            this.canResetDash = true;
-                            if (this.queResetDash) this.resetDash();
-                        }
-                    });
-                    this.clearTint();
-                },
-                update: (delta, input) => {
-                    this.dashTime += delta;
-
-                    const t = Phaser.Math.Clamp((this.dashTime) / this.dashDuration, 0, 1);
-                    const currentSpeed = lerp(this.startDash, this.endDash, t)
-                    if (isNaN(currentSpeed)) {
-
-                        this.setVelocityX(0);
-                    } else {
-                        this.setVelocityX(currentSpeed);
-                        this.setVelocityY(0);
-                    }
-
-                    if (this.body.blocked.left || this.body.blocked.right) {
-                        this.stateLockout = 0;
-                        if (input.jump) {
-                            this.body.blocked.left ? this.wallRunLeft = 540 : this.wallRunRight = 540;
-                            this.setState('wallRun', input);
-                        } else {
-                            this.setState('idle');
-                        }
-                    }
-                    if (input.crouch && !this.slamCD) {
-                        this.stateLockout = 0;
-                        this.setState('slam', input);
-                    }
-                },
-                exit: () => {
-                    this.body.setAllowGravity(true);
-                    this.isDashing = false;
-                    this.iFrame = false;
-                },
-            },
-
-            grapple: {
-                enter: (hitLocation) => {
-                    this.isGrappling = true;
-
-                    const dx = this.x - hitLocation.x;
-                    const dy = this.y - hitLocation.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    const tangX = -dy / dist;
-                    const tangY = dx / dist;
-                    const tangVel = (this.body.velocity.x * tangX) + (this.body.velocity.y * tangY);
-                    const angle = Math.atan2(dy, dx);
-                },
-                update: () => { },
-                exit: () => {
-                    this.isGrappling = false;
-                },
-            },
-
-            heal: {
-                enter: () => {
-                    this.isHealing = true;
-                    this.setMaxVelocity(135, 135);
-                    this.tryUncrouch();
-                },
-                update: (delta, input) => {
-                    const { left, right } = input;
-                    const move = (left ? -1 : right ? 1 : 0) * (this.speed);
-                    this.setVelocityX(this.walkLerp(delta, move))
-                    this.healCD += delta / 250;
-
-                    if (this.healCD >= 1) {
-                        if (this.health >= this.healthMax) return;
-                        this.healCD = 0;
-                        this.updateHealth(1);
-                        this.updateMoney(-1);
-                    }
-                },
-                exit: () => {
-                    this.isHealing = false;
-                    this.setMaxVelocity(1500, 1500);
-                },
-            },
-        }
+        setupPlayerStates(this);
     }
 
 
     updateHealth(value) {
-        if (this.health >= this.healthMax) return;
-        this.health += value;
-        GameManager.stats.health = this.health;
-        this.emit('updateHealth', this.health, this.healthMax);
-        this.network.socket.emit('updateHealth', this.health, this.healthMax);
+        return playerUpdateHealth(this, value);
     }
 
     resetJump(dash = true) {
@@ -1193,32 +563,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     syncGhost(delta, state) {
-        if (!this.network?.socket) return;
-
-        this.statSyncTimer = (this.statSyncTimer || 0) + delta;
-
-        if (this.statSyncTimer < 15) return;
-
-        this.statSyncTimer = 0;
-
-        // const state = {
-        //     x: this.x,
-        //     y: this.y,
-        //     f: this.flipX ? 1 : 0,
-        //     a: this.anims?.currentAnim?.key || '',
-        //     c: this.isCrouch ? 1 : 0,
-        //     j: !this.body.blocked.down ? 1 : 0,
-        //     s: this.isSliding ? 1 : 0,
-        //     h: this.isHealing ? 1 : 0,
-        //     t: this.stunned ? 1 : 0,
-        //     d: this.isDashing ? 1 : 0,
-        // };
-
-        if (!this.hasStateChanged(state, this.lastSentState)) return;
-
-        this.lastSentState = { ...state };
-
-        this.network.socket.emit('playerStateRequest', state);
+        return playerSyncGhost(this, delta, state);
     }
 
     hasStateChanged(newState, oldState) {
@@ -1231,67 +576,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     TakeDamage(x, y, damage = 1, stunDuration = 300, actor) {
-        if (this.scene.physics.isPaused) return false;
-        if (this.iFrame) return false;
-        if (this.hitCD) return false;
-        if (!this.alive) return false;
-
-        this.hitCD = true;
-        this.setTint('0xFF0000');
-        this.scene.time.addEvent({
-            delay: 500,
-            callback: () => {
-                this.hitCD = false;
-                if (this.canDash) {
-                    if (!this.alive) return;
-                    this.setTint(this.buffColor);
-                } else {
-                    this.setTint();
-                }
-            }
-        });
-
-        if (this.adjustHealth(-damage) === 0) {
-            this.Died(actor);
-        }
-
-        this.updateMoney(-damage);
-
-        this.makeScreenFlash();
-        playSound(this.scene, this.damageSound);
-
-        if (this.currentState === 'meditate') return true;
-
-        if (stunDuration > 0) {
-            this.stunned = true;
-            this.emit('playerstunned');
-            this.stop();
-            this.setFrame(8);
-            this.scene.time.removeEvent(this.stunTimer);
-            this.stunTimer = this.scene.time.addEvent({
-                delay: stunDuration,
-                callback: () => {
-                    this.stunned = false;
-                    this.setFrame(5);
-                }
-            });
-        }
-
-        this.setVelocityX(x);
-        this.setVelocityY(y);
-
-
-        return true;
+        return playerTakeDamage(this, x, y, damage, stunDuration, actor);
     }
 
     adjustHealth(amount) {
-
-        this.health = Phaser.Math.Clamp(this.health + amount, 0, this.healthMax);
-        GameManager.stats.health = this.health;
-        this.emit('updateHealth', this.health, this.healthMax);
-        this.network.socket.emit('updateHealth', this.health, this.healthMax);
-
-        return this.health;
+        return playerAdjustHealth(this, amount);
     }
 
     resetDash(force = false) {
@@ -1390,24 +679,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     syncNetwork() {
-        if (this.tryingToSync) return;
-        this.tryingToSync = true;
-        setTimeout(() => this.tryingToSync = false, 500);
-
-        if (!this.network.socket.connected && !this.network.socket.reconnecting) {
-            this.network.socket.connect();
-        }
-
-        this.network.socket.emit('playerSyncRequest', {
-            data: {
-                location: GameManager.location,
-                name: GameManager.name,
-                power: GameManager.power,
-                stats: GameManager.stats
-            }
-        });
-        console.log(GameManager.stats.health);
-
+        return playerSyncNetwork(this);
     }
 
     equipWeapon(name = 'Shurikan', slot = 0,) {
@@ -1507,7 +779,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     hitLaser(hit) {
-        console.log('hit lasorr');
         const dirX = this.x - hit.x;
         const dirY = this.y - hit.y;
         this.TakeDamage(dirX, dirY, 1, 0);

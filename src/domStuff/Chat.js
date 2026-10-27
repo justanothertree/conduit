@@ -10,6 +10,7 @@ let isChatting = false;
 let message = "";
 let network;
 let scene;
+let chatMessageHandler = null;
 
 export function chatNetwork() {
     network = NetworkManager.instance;
@@ -17,9 +18,18 @@ export function chatNetwork() {
         addMessage(d.message)
     }
 
-    network.socket.on('globalChatMessageUpdate', ({ id, data }) => {
+    // chatNetwork runs on every level load (setupNet) but the socket is the
+    // persistent NetworkManager singleton, so a plain .on() would stack one
+    // listener per visited level and each incoming chat message would be
+    // appended N times. Replace (not stack), same convention as the other
+    // per-level listeners (Days 14/19/20).
+    if (chatMessageHandler) {
+        network.socket.off('globalChatMessageUpdate', chatMessageHandler);
+    }
+    chatMessageHandler = ({ id, data }) => {
         netMessages(data);
-    });
+    };
+    network.socket.on('globalChatMessageUpdate', chatMessageHandler);
 }
 
 export function getChatting() {
@@ -54,16 +64,29 @@ export default function setupChat() {
     document.addEventListener('mousedown', (e) => {
         textInput.blur();
     })
+    // Touch mirror of the above: the game canvas and on-screen buttons all
+    // preventDefault their touchstart, which suppresses the browser's
+    // synthesized mousedown — so without this, tapping the game area on a
+    // phone would never blur the chat input and the keyboard would stay
+    // disabled. Passive: no need to block scrolling here, just blur.
+    document.addEventListener('touchstart', (e) => {
+        textInput.blur();
+    }, { passive: true })
     textInput.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+    })
+    textInput.addEventListener('touchstart', (e) => {
         e.stopPropagation();
     })
     textInput.addEventListener('mouseup', (e) => {
         e.stopPropagation();
     })
+    textInput.addEventListener('touchend', (e) => {
+        e.stopPropagation();
+    })
 
     window.addEventListener('keydown', (e) => {
         if (isChatting) {
-            console.log(e.code);
             if (e.code === 'Escape') {
                 e.preventDefault();
                 textInput.blur();

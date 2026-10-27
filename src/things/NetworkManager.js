@@ -51,7 +51,12 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
 
       this.socket.emit('pingCheck');
 
-      setInterval(() => {
+      // 'connect' fires on every reconnect, but setInterval is permanent —
+      // without clearing the old one, each reconnect would add another
+      // 5s ping timer (same replace-not-stack convention as the per-level
+      // handler fixes). Keep exactly one ping timer live.
+      if (this.pingInterval) clearInterval(this.pingInterval);
+      this.pingInterval = setInterval(() => {
         this.socket.emit('pingCheck');
       }, 5000);
 

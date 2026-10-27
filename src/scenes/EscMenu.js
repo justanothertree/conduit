@@ -41,37 +41,23 @@ export default class EscMenu extends Phaser.Scene {
             fill: '#FF0000',
         })
 
-        // Slider track and handle
-        const sliderText = this.add.text(400, 390, 'master');
-        const track = this.add.rectangle(600, 400, 200, 10, 0xffffff).setOrigin(0.5);
-        const handle = this.add.circle(600, 400, 10, 0xff0000).setInteractive();
-        this.input.setDraggable(handle);
-        handle.name = 'master';
-        this.slider = { track, handle };
+        // The four volume sliders share geometry; createSlider builds each one
+        // (label, track, draggable handle) so the blocks don't repeat.
+        const createSlider = (y, name) => {
+            this.add.text(400, y - 10, name);
+            const track = this.add.rectangle(600, y, 200, 10, 0xffffff).setOrigin(0.5);
+            const handle = this.add.circle(600, y, 10, 0xff0000).setInteractive();
+            this.input.setDraggable(handle);
+            handle.name = name;
+            return { track, handle };
+        };
 
-        // Slider track and handle
-        const sliderText1 = this.add.text(400, 440, 'music');
-        const track1 = this.add.rectangle(600, 450, 200, 10, 0xffffff).setOrigin(0.5);
-        const handle1 = this.add.circle(600, 450, 10, 0xff0000).setInteractive();
-        this.input.setDraggable(handle1);
-        handle1.name = 'music';
-        this.slider1 = { track1, handle1 };
-
-        // Slider track and handle
-        const sliderText2 = this.add.text(400, 490, 'voice');
-        const track2 = this.add.rectangle(600, 500, 200, 10, 0xffffff).setOrigin(0.5);
-        const handle2 = this.add.circle(600, 500, 10, 0xff0000).setInteractive();
-        this.input.setDraggable(handle2);
-        handle2.name = 'voice';
-        this.slider2 = { track2, handle2 };
-
-        // Slider track and handle
-        const sliderText3 = this.add.text(400, 540, 'mic');
-        const track3 = this.add.rectangle(600, 550, 200, 10, 0xffffff).setOrigin(0.5);
-        const handle3 = this.add.circle(600, 550, 10, 0xff0000).setInteractive();
-        this.input.setDraggable(handle3);
-        handle3.name = 'mic';
-        this.slider3 = { track3, handle3 };
+        this.sliders = {
+            master: createSlider(400, 'master'),
+            music: createSlider(450, 'music'),
+            voice: createSlider(500, 'voice'),
+            mic: createSlider(550, 'mic'),
+        };
 
         const donate = this.add.text(300, 25,
             'Made by: Josh Massarella\nDonate to help me make more games!', {
@@ -136,10 +122,59 @@ export default class EscMenu extends Phaser.Scene {
         })
         addSettingsButton(toggleSettings)
 
+        // Menu entries for the three actions with no phone button
+        // (package B: Inventory / Home / Respawn live here instead of
+        // on the thumb grid). Same actions as the C / T / R keys.
+        const menuAction = (label, y, onTap) => {
+            const entry = this.add.text(0, y, label, {
+                fontSize: '28px',
+                color: '#FFFFFF',
+            })
+                .setInteractive({ useHandCursor: true })
+                .on('pointerdown', onTap)
+                .on('pointerover', () => entry.setColor('#00FF00'))
+                .on('pointerout', () => entry.setColor('#FFFFFF'));
+            return entry;
+        };
+
+        menuAction('INVENTORY', 320, () => {
+            const inv = this.gameScene.invMenu;
+            if (!inv) return;
+            if (inv.scene.isVisible()) {
+                inv.scene.setVisible(false);
+                inv.input.enabled = false;
+                inv.scene.setActive(false);
+            } else {
+                inv.scene.setVisible(true);
+                inv.scene.setActive(true);
+                inv.input.enabled = true;
+            }
+            toggleSettings();
+        });
+
+        menuAction('HOME', 370, () => {
+            const player = this.gameScene.player;
+            if (player && ((this.gameScene.scene.key !== 'Home' && player.body.blocked.down && !player.chatting) || !player.alive)) {
+                GameManager.useLastLocation = false;
+                GameManager.save();
+                this.game.scene.start('Home');
+            }
+        });
+
+        menuAction('RESPAWN', 420, () => {
+            const player = this.gameScene.player;
+            if (player && ((player.body.blocked.down && !player.chatting) || !player.alive)) {
+                player.respawnPlayer();
+                toggleSettings();
+            }
+        });
+
         // Slider drag logic
         this.input.on('drag', (pointer, gameObject, dragX) => {
-            const minX = track.x - track.width / 2;
-            const maxX = track.x + track.width / 2;
+            const slider = this.sliders[gameObject.name];
+            if (!slider) return; // only the four slider handles are draggable
+            const minX = slider.track.x - slider.track.width / 2;
+            const maxX = slider.track.x + slider.track.width / 2;
 
             dragX = Phaser.Math.Clamp(dragX, minX, maxX);
             gameObject.x = dragX;
@@ -176,18 +211,15 @@ export default class EscMenu extends Phaser.Scene {
     // }
 
     setInitialVolume(volume) {
-        const minX = this.slider.track.x - this.slider.track.width / 2;
-        const maxX = this.slider.track.x + this.slider.track.width / 2;
-        this.slider.handle.x = Phaser.Math.Linear(minX, maxX, volume.master);
+        // GameManager.volume persists master/music/voice only; the mic
+        // handle is not persisted, so it keeps its created position.
+        for (const name of ['master', 'music', 'voice']) {
+            const slider = this.sliders[name];
+            const minX = slider.track.x - slider.track.width / 2;
+            const maxX = slider.track.x + slider.track.width / 2;
+            slider.handle.x = Phaser.Math.Linear(minX, maxX, volume[name]);
+        }
         this.sound.volume = volume.master ?? 1;
-
-        const minX1 = this.slider1.track1.x - this.slider1.track1.width / 2;
-        const maxX1 = this.slider1.track1.x + this.slider1.track1.width / 2;
-        this.slider1.handle1.x = Phaser.Math.Linear(minX1, maxX1, volume.music);
-
-        const minX2 = this.slider2.track2.x - this.slider2.track2.width / 2;
-        const maxX2 = this.slider2.track2.x + this.slider2.track2.width / 2;
-        this.slider2.handle2.x = Phaser.Math.Linear(minX2, maxX2, volume.voice);
     }
 
     openNameInput() {

@@ -42,6 +42,10 @@ export default class Preloader extends Phaser.Scene {
         this.load.image('zap', 'assets/Zap.png');
         this.load.image('auraicon', 'assets/AuraIcon.png');
         this.load.image('auraicondesat', 'assets/AuraIconDesat.png');
+        // The aura weapon's slot name is 'zap', so the weapon-icon bar looks up
+        // the 'zapicon' texture (setWeaponIcon builds name + 'icon'). Without it,
+        // Phaser renders the green __MISSING texture if the aura is ever re-equipped.
+        this.load.image('zapicon', 'assets/AuraIcon.png');
         this.load.image('bottomplat', 'assets/BottomPlat.png');
         this.load.image('duckman', 'assets/duckman.png');
         this.load.image('turret', 'assets/TurretPlatform.png');
@@ -141,10 +145,6 @@ export default class Preloader extends Phaser.Scene {
         this.load.spritesheet('sunsheet', 'assets/SunSheet.png', {
             frameHeight: 256,
             frameWidth: 256
-        });
-        this.load.spritesheet('sunsheet', 'assets/SunSheet.png', {
-            frameWidth: 256,
-            frameHeight: 256
         });
         this.load.spritesheet('fireballsheet', 'assets/FireballSheet.png', {
             frameWidth: 66,

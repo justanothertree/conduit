@@ -91,7 +91,6 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         // })
 
         this.applyDamage(x, y, damage, stunDuration);
-        console.log(damage);
 
         return true;
 

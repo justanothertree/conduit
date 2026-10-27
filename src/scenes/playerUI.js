@@ -19,7 +19,6 @@ export default class PlayerUI extends Phaser.Scene {
         });
         this.player.on('moneyChanged', (v) => {
             const money = GameManager.power.money
-            console.log(money);
             this.scoreText.text = 'Source: ' + (money) + '\n' + getRank(money);
         })
     }
@@ -214,7 +213,6 @@ export default class PlayerUI extends Phaser.Scene {
         this.chatting = false;
 
         if (!message) return;
-        console.log('Player typed:', message);
 
         this.player.makeChatBubble(message);
 

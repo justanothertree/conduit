@@ -9,8 +9,22 @@ export function setupDiscordWindow() {
 
     moveDiscordButton.addEventListener('mousedown', (e) => {
         e.stopPropagation();
+        document.getElementById('chatInput')?.blur();
+        moveDiscordButton.blur();
         sec.classList.toggle('hidden');
     })
+
+    // Touch mirror of the mousedown handler above (same pattern as the card
+    // toolbar and settings buttons): preventDefault suppresses the browser's
+    // synthesized mouse events, so a tap toggles the panel once, with no tap
+    // delay or scroll/zoom gesture. Desktop mouse behavior unchanged.
+    moveDiscordButton.addEventListener('touchstart', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        document.getElementById('chatInput')?.blur();
+        moveDiscordButton.blur();
+        sec.classList.toggle('hidden');
+    }, { passive: false });
 }
 
 

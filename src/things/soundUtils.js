@@ -57,7 +57,7 @@ export default class SoundUtil {
 
 
 
-export function playHitSound(scene, soundKey, options = {}) {
+function playPooledSound(scene, soundKey, options = {}) {
     if (document.visibilityState !== 'visible') return;
 
     const now = scene.time.now;
@@ -84,29 +84,10 @@ export function playHitSound(scene, soundKey, options = {}) {
     }
 }
 
+export function playHitSound(scene, soundKey, options = {}) {
+    playPooledSound(scene, soundKey, options);
+}
+
 export function playSound(scene, soundKey, options = {}) {
-    if (document.visibilityState !== 'visible') return;
-
-    const now = scene.time.now;
-    const lastTime = lastPlayTimes[soundKey] || 0;
-
-    if (now - lastTime > (options.cooldown || MIN_INTERVAL)) {
-        lastPlayTimes[soundKey] = now;
-
-        if (!sfxPool[soundKey]) {
-            sfxPool[soundKey] = [];
-            for (let i = 0; i < (options.poolSize || 6); i++) {
-                sfxPool[soundKey].push(scene.sound.add(soundKey));
-            }
-        }
-
-        const pool = sfxPool[soundKey];
-        const sound = pool.find(s => !s.isPlaying) || pool[0]; // grab idle sound or first one
-
-        sound.play({
-            volume: options.volume ?? 1,
-            detune: options.detune ?? Phaser.Math.Between(-55, 55),
-            rate: options.rate ?? 1
-        });
-    }
+    playPooledSound(scene, soundKey, options);
 }

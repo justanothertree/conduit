@@ -3,6 +3,7 @@
     display: flex;
     position: absolute;
     top: 100px;
+    right: 0;
     gap: 2px;
     z-index: 4;
     transform: translateX(calc(100% - 410px));
@@ -33,6 +34,7 @@
     bottom: 150px;
     height: 200px;
     width: 450px;
+    max-width: 100vw;
     z-index: 2;
 }
 
@@ -64,4 +66,19 @@
     width: 98%;
     background-color: rgba(0, 0, 0, 0.5);
     color: aliceblue;
+}
+
+/* --- Narrow phones: the discord panel (60px toggle + 350px iframe + gap =
+   412px) is wider than the viewport, so the opened panel is cut off at the
+   left. Shrink the iframe to fit and park the section flush right instead of
+   relying on the fixed 410px offset. The parked `.hidden` state still shows
+   just the 60px toggle tab, since its translateX rule is more specific. --- */
+@media (max-width: 411px) {
+    #discord-section iframe {
+        width: calc(100vw - 62px);
+    }
+
+    #discord-section {
+        transform: translateX(0);
+    }
 }

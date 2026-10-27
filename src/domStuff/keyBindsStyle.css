@@ -70,8 +70,12 @@
     pointer-events: none;
 }
 
-/* --- Phone layout: thumb-friendly compact controls --- */
-@media (max-width: 760px) {
+/* --- Phone/tablet layout: thumb-friendly compact controls.
+   Triggered by narrow screens OR any touch-primary device (covers phones
+   held in landscape, where width > 760px but touch is the input).
+   Only the 8 placed buttons show; everything else is hidden so stray
+   buttons (Hide, voice, debug) can't blow the grid out with implicit tracks. --- */
+@media (max-width: 760px), (pointer: coarse) {
     .kb-grid {
         grid-template-columns: repeat(6, 54px);
         padding-left: 0;
@@ -79,20 +83,39 @@
     }
 
     .kb-button {
-        width: 54px;
+        width: 54px !important;
         height: 54px;
+        display: none !important;
     }
 
     .kb-image {
         height: 44px;
     }
 
+    /* key names (A, Space, Shift) are meaningless on touch:
+       show the action name instead */
     .kb-label {
-        font-size: 16px;
+        display: none;
     }
 
     .kb-info {
-        display: none;
+        display: block;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 17px;
+    }
+
+    .kb-button[data-action="Left"],
+    .kb-button[data-action="Right"],
+    .kb-button[data-action="Jump"],
+    .kb-button[data-action="Dash"],
+    .kb-button[data-action="Crouch"],
+    .kb-button[data-action="Heal"],
+    .kb-button[data-action="Interact"],
+    .kb-button[data-action="SettingsButton"] {
+        display: flex !important;
     }
 
     /* left thumb: movement | right thumb: actions */
@@ -103,10 +126,12 @@
     .kb-button[data-action="Crouch"]   { grid-row: 2 !important; grid-column: 1 !important; }
     .kb-button[data-action="Heal"]     { grid-row: 2 !important; grid-column: 2 !important; }
     .kb-button[data-action="Interact"] { grid-row: 2 !important; grid-column: 5 !important; }
-    .kb-button[data-action="Settings"] { grid-row: 2 !important; grid-column: 6 !important; }
-
-    /* menu-ish buttons hidden on phone to keep the bar compact */
-    .kb-button[data-action="Inventory"],
-    .kb-button[data-action="Home"],
-    .kb-button[data-action="Respawn"] { display: none !important; }
+    /* The working gear replaces the dead label Settings button: the label
+       button has no callback, so on phones it only played the press
+       animation. The gear toggles the Esc menu for real. */
+    .kb-button[data-action="SettingsButton"] { grid-row: 2 !important; grid-column: 6 !important; }
+    .kb-button[data-action="SettingsButton"] .kb-settingsimage {
+        width: 54px;
+        transform: none;
+    }
 }

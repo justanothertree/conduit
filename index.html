@@ -137,6 +137,25 @@
       z-index: 10;
     }
 
+    .card {
+      touch-action: manipulation; /* no tap delay / double-tap zoom on cards */
+      -webkit-user-select: none;
+      user-select: none; /* long-press (hold-to-lock) must not select text */
+      -webkit-touch-callout: none; /* no iOS long-press callout */
+    }
+
+    /* Smaller cards and tighter grid on phones so more fit on screen */
+    @media (max-width: 480px) {
+      #icon-grid {
+        gap: 0.75rem;
+      }
+
+      .card {
+        width: 72px;
+        height: 105px;
+      }
+    }
+
 
     .card-label {
       position: absolute;
@@ -152,8 +171,8 @@
 
     #icon-toolbar {
       position: relative;
+      z-index: 20;
       display: flex;
-      ;
       width: 100%;
       background: #222;
       align-items: center;

@@ -70,7 +70,6 @@ boxTrace() {
     const didHit = Phaser.Geom.Intersects.LineToRectangle(ray, playerBounds);
     if (didHit) {
         this.player.hitLaser(closestPoint); // Or maybe use `this.player.x/y`
-        console.log('HIT', closestPoint);
 
         // Debug
         // const gfx = this.scene.add.graphics();
@@ -96,7 +95,6 @@ boxTrace() {
             loop: true,
             callback: () => {
                 if (this.active) {
-                    console.log('deactivate')
                     this.deactivate();
                     this.flickerTimer.delay = offTime;
                 } else {

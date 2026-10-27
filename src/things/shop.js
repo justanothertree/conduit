@@ -92,7 +92,6 @@ export default class Shop extends Phaser.GameObjects.Container {
     }
 
     interact(player) {
-        console.log('interact with shop');
         if (player.getMoney() < this.gambleCost) {
             //this.scene.showMessage('You need 100 source.');
             return;

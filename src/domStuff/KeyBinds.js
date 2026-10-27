@@ -13,10 +13,15 @@ export function setupKeybindWindow() {
         e.stopPropagation();
         e.preventDefault();
     })
-    // kbGrid.addEventListener('mouseup', (e) => {
-    //     e.stopPropagation();
-    //     e.preventDefault();
-    // })
+
+    // Touch mirror of the mousedown handler above: taps landing on the gaps
+    // between buttons behave exactly like desktop clicks — stopPropagation
+    // keeps them from reaching the document-level chat blur, and
+    // preventDefault suppresses the browser's synthesized mouse events.
+    kbGrid.addEventListener('touchstart', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+    }, { passive: false })
 
     section.appendChild(kbGrid);
 
@@ -79,7 +84,6 @@ export function addButton(imgSrc, key, action = 'Interact', row = 1, col = 1, wi
     }
 
     document.addEventListener('keydown', (e) => {
-        console.log(e.code);
         if (e.code === key) {
             active?.();
         }
@@ -129,6 +133,8 @@ export function addSettingsButton(callbackActive, callbackInActive, texture = 'S
     button.appendChild(img);
     kbGrid.appendChild(button);
 
+    button.dataset.action = texture;
+
     const active = () => {
         img.src = 'assets/' + texture + 'Press' + '.png';
         callbackActive?.();
@@ -145,4 +151,20 @@ export function addSettingsButton(callbackActive, callbackInActive, texture = 'S
     button.addEventListener('mouseup', (e) => {
         inActive();
     })
+
+    // Touch mirrors of the mouse handlers above (same pattern as addButton):
+    // preventDefault suppresses the browser's synthesized mouse events, so a
+    // tap fires the callback once, with no tap delay or scroll/zoom gesture.
+    button.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        active();
+    }, { passive: false });
+    const releaseTouch = (e) => {
+        e.preventDefault();
+        inActive();
+    };
+    button.addEventListener('touchend', releaseTouch, { passive: false });
+    button.addEventListener('touchcancel', releaseTouch, { passive: false });
+
+    return button;
 }

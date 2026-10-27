@@ -85,7 +85,6 @@ export default {
         this.area = keep.area ?? 'Home';
         this.power = keep.power ?? { money: 0, spent: 0, auraLevel: 1, vault: 0};
         this.upgrades = keep.upgrades ?? {};
-        this.money = keep.money ?? 0;
         this.stats = keep.stats ?? { healthMax: 25, health: 25 };
         this.weapons = keep.weapons ?? { left: 'shurikan', right: 'sword', aura: 'zap' };
         this.volume = keep.volume ?? { master: 1, music: 1, voice: 1 };

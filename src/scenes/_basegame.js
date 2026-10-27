@@ -21,35 +21,7 @@ export default class BaseGame extends Phaser.Scene {
 
   update(time, delta) {
     if (this.player && this.playerSpawned) this.player.handleInput(time, delta);
-    // if (this.network.voiceChat) {
-    //   this.network.voiceChat.updateVolumes();
-    // };
-
-    // if (this.network) {
-    //   this.network.socket.emit('playerMove', {
-    //     x: this.player.x,
-    //     y: this.player.y
-    //   });
-    // }
   }
-  // _ensureMediaElementPlayback(audioContext) {
-  //   if (audioContext.state !== 'running') {
-  //     return;
-  //   }
-
-  //   const silentAudio = new Audio('assets/Whip1.wav');
-  //   silentAudio.volume = 0.001;
-  //   silentAudio.preload = 'auto';
-
-  //   silentAudio.play().then(() => {
-  //     console.log('Silent audio played to unlock media elements.');
-  //     silentAudio.pause();
-  //     silentAudio.src = '';
-  //     silentAudio.load();
-  //   }).catch(e => {
-  //     console.warn('Silent audio play failed:', e);
-  //   });
-  // }
   setupWorld(xleft = 0, ytop = 0, width = 6400, height = 12800) {
     GameManager.load();
     this.physics.world.setBounds(xleft, ytop, width, height);
@@ -64,59 +36,36 @@ export default class BaseGame extends Phaser.Scene {
         this.network.voiceChat._initMic();
       }
     }
-    addSettingsButton(joinVoiceChat, null, 'VoiceButton', 15);
-    addSettingsButton(()=> {
+    // The DOM button bar is global and outlives levels, but setupWorld runs on
+    // every level load — replace (not stack) the per-level voice/debug
+    // buttons. Their callbacks close over the current scene, so they can't be
+    // created just once; removing the previous pair first keeps buttons and
+    // their listeners from piling up unboundedly. (Same convention as the
+    // Preloader's document.*Button refs.)
+    document.voiceButton?.remove();
+    document.debugButton?.remove();
+    document.voiceButton = addSettingsButton(joinVoiceChat, null, 'VoiceButton', 15);
+    document.debugButton = addSettingsButton(()=> {
       console.log(this.game.scene.getScenes())
     }, undefined, undefined, 17, 2)
 
 
-    // document.body.addEventListener('click', (event) => {
-    //   if (!this.network.voiceChat || !this.network.voiceChat.audioContext) {
-    //     return;
-    //   }
-
-    //   const audioContext = this.network.voiceChat.audioContext;
-
-    //   if (audioContext.state === 'suspended') {
-    //     audioContext.resume().then(() => {
-    //       console.log('AudioContext resumed.');
-    //       this._ensureMediaElementPlayback(audioContext);
-    //     }).catch(e => {
-    //       console.error('Failed to resume AudioContext:', e);
-    //     });
-    //   } else {
-    //     console.log('AudioContext already running.');
-    //     this._ensureMediaElementPlayback(audioContext);
-    //   }
-    // }, { once: true });
-
-
-
-    // Scroll wheel to zoom
-    // this.input.on('wheel', (wheel) => {
-    //   if (!this.zoom) this.zoom = 1;
-    //   // Step 1: Adjust zoom
-    //   this.zoom -= wheel.deltaY / 1000;
-
-    //   // Step 2: Clamp
-    //   this.zoom = Phaser.Math.Clamp(this.zoom, 0.6, 3);
-
-    //   // Step 3: Snap to nearest 0.2
-    //   this.zoom = Phaser.Math.Snap.To(this.zoom, 0.1);
-
-
-    //   this.sky1.setScale(1 / this.zoom);
-    //   this.cameras.main.setZoom(this.zoom)
-    //   //this.resizeBackgroundToFill();
-    // })
-
-
-    window.addEventListener('beforeunload', () => {
+    // The window 'beforeunload' listener is global, but setupWorld runs on
+    // every level load — without removal the save-on-exit handlers would
+    // stack, firing (and saving) N times on tab close after N level visits.
+    // Register with a named handler and remove it when the scene shuts down,
+    // the same replace-not-stack convention as the other per-level listeners
+    // (Day 14/16/19). Phaser emits 'shutdown' on scene.start transitions.
+    const saveOnUnload = () => {
       GameManager.area = this.key;
       GameManager.location.x = this.player.x;
       GameManager.location.y = this.player.y;
       GameManager.useLastLocation = true;
       GameManager.save();
+    };
+    window.addEventListener('beforeunload', saveOnUnload);
+    this.events.once('shutdown', () => {
+      window.removeEventListener('beforeunload', saveOnUnload);
     });
 
     this.events.once('shutdown', () => {
@@ -125,15 +74,6 @@ export default class BaseGame extends Phaser.Scene {
     this.events.once('destroy', () => {
       this.cleanupScene();
     }, this);
-
-
-    // window.addEventListener('focus', () => {
-    //   this.sound.mute = false;
-    // });
-
-    // window.addEventListener('blur', () => {
-    //   this.sound.mute = true;
-    // });
   }
 
   setupNet() {
@@ -150,6 +90,11 @@ export default class BaseGame extends Phaser.Scene {
     if (sky2) this.sky2 = this.add.image(1000, 1200, 'purplesky1').setScale(1).setScrollFactor(.2).setOrigin(.5, .5);
     if (sky3) this.sky3 = this.add.image(2400, 2000, 'purplesky2').setScale(1).setScrollFactor(.6).setOrigin(.5, .5);
 
+    // setupSky runs on every level load but the ScaleManager is global, so a
+    // plain .on() would stack one resizeSky per visited level — dead scenes'
+    // handlers would keep firing on every window resize, touching destroyed
+    // images. Replace (not stack), same as the DOM handlers in IconGrid.
+    this.scale.off('resize', this.resizeSky, this);
     this.scale.on('resize', this.resizeSky, this);
   }
 
@@ -497,23 +442,6 @@ export default class BaseGame extends Phaser.Scene {
         this.spawnManager.spawnBullet(x, y);
       }
     })
-
-    // if (!this.bulletSpawnLocs) {
-    //   this.bulletSpawnLocs = [];
-
-    //   this.time.addEvent({
-    //     delay: delay,
-    //     loop: true,
-    //     callback: () => {
-    //       this.bulletSpawnLocs.forEach(([x, y]) => {
-    //         this.spawnManager.spawnBullet(x, y);
-    //         console.log('fire')
-
-    //       })
-    //     }
-    //   })
-    // }
-    // this.bulletSpawnLocs.push([x, y])
   }
 
   spawnSourceBlock(x, y) {

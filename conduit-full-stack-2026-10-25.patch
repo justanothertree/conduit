@@ -1,0 +1,3221 @@
+diff --git a/OVERHAUL_PLAN.md b/OVERHAUL_PLAN.md
+index b61a4b3..4672f47 100644
+--- a/OVERHAUL_PLAN.md
++++ b/OVERHAUL_PLAN.md
+@@ -44,6 +44,38 @@ Known tradeoffs / follow-ups:
+   Could swap to icons/labels on touch devices later.
+ - Not yet tested on a real phone — needs a device pass (multi-touch feel,
+   button sizes, performance on mobile GPU).
++- 2026-09-25: build passes (vite build clean). Committed as 35fd6b7 on top of
++  upstream. Visual/device verification still pending — no way to screenshot or
++  tunnel out of this sandbox, so deployment needs someone with repo access.
++- 2026-09-25: real-device report (Yaya's phone) — touch worked for Jump/Dash,
++  but Left/Right/Crouch/Heal were off-screen. Root cause: stray buttons at
++  grid columns 11 (Hide), 15 (voice), 17 (debug) created implicit grid tracks
++  that stretched the 6-column phone bar to ~650px+, pushing the left buttons
++  off-screen. Also, inline wide widths (Jump 140px, Dash 100px) overflowed
++  their 54px tracks. Fixed by whitelisting only the 8 placed buttons in the
++  compact layout, capping widths, and showing action names instead of key
++  names on touch. Landscape covered via (pointer: coarse).
++- 2026-09-26: bug-fix batch (patch 4, awaiting deploy):
++  - Discord widget: `#discord-section` had no left/right anchor, so its
++    412x500 transparent box sat over the left of the game canvas intercepting
++    clicks in BOTH shown and hidden states. Anchored to right:0; now parks as
++    just the 60px toggle tab at the right edge.
++  - Sort Cards blocked: hover-scaled first-row cards (z-index 9/10) painted
++    over the toolbar buttons. Raised #icon-toolbar to z-index 20.
++  - Keyboard dying after clicking cards/buttons: those mousedown handlers
++    stopPropagation, so the document-level chat blur never fired and the chat
++    input kept keyboard disabled. Now blur chat explicitly on those clicks.
++  - Deleted dead src/scenes/Level1_old.js (zero imports).
++- 2026-09-27: touch-friendly cards (patch 5c, awaiting deploy):
++  - Cards were mouse-only (`mousedown`/`mouseup`/`mouseleave`) — taps did
++    nothing on phones. Added touch handlers mirroring mouse: tap = consume,
++    800ms hold = lock/unlock, sliding finger off cancels the hold.
++  - `preventDefault()` on touchstart suppresses the browser's synthesized
++    mouse events, so taps never double-fire. Container-level touch handlers
++    keep touches off the game canvas.
++  - Small-screen CSS: `touch-action: manipulation` (no tap delay), no
++    long-press text selection/callout, smaller cards + tighter grid under
++    480px.
+ 
+ ## Phase 2 — Quick-win bug fixes (desktop)
+ - Sort Cards button blocked by invisible overlay (real UI bug).
+@@ -53,12 +85,36 @@ Known tradeoffs / follow-ups:
+ - Flag webhook rotation to Josh.
+ 
+ ## Phase 2 — Structural refactor (the "too much to work on" fix)
++- [x] 2026-09-27: Player.js decomposed 1515 → ~787 lines (patch 5c, awaiting
++  deploy). All 14 state definitions → playerStuff/playerStates.js; health
++  (TakeDamage/adjustHealth/updateHealth) → playerStuff/playerHealth.js;
++  networking (syncGhost/syncNetwork/spectatePlayer) → playerStuff/playerNetwork.js.
++  Pure code motion — Player keeps thin wrappers, external callers untouched.
++  Build passes. (Health went to a new module rather than the old
++  healthComponent.js stub, which was never wired up.)
+ - Extract Player.js state machine into `playerStuff/states/` modules.
+ - Move health/damage into `healthComponent.js`.
+ - Move networking (syncNetwork, syncGhost, spectatePlayer) into `NetworkManager.js`.
+ - Extract input handling (handleInput, getInput, decideState) into its own module.
++  - [x] Done 2026-09-27 (batch 6): `handleInput`, `decideState`, `getInput`,
++    `setState`, `walkLerp` → `playerStuff/playerInput.js`. Player keeps thin
++    wrappers; build passes.
+ - Trim GameManager singleton surface where cheap.
++  - [x] Reviewed 2026-09-27: already 126 lines and focused; only cheap trim was
++    removing a dead `GameManager.money` write in `reset()` that nothing read.
+ - No behavior changes — pure refactor, game plays identically.
+ 
+ ## Phase 3 — Game overhaul (to specify with Yaya)
+ - Direction TBD: new content, features, rebalance, art, etc.
++
++## Patches (raw URLs — apply in order on desktop)
++- **touch23** — landscape + off-screen controls:
++  https://muse.ai/files/1268891369648037/2315834635924218/t14tt8eilbm4bmsimgwxdzjb/conduit-mobile-touch-23.patch
++  (re-uploaded 2026-09-28, expires 2026-10-01 01:37 UTC)
++- **bugfix4** — Discord overlay, Sort Cards, chat focus, dead code:
++  https://muse.ai/files/1268891369648037/1883485996355469/4vvki3a5rc3tsy9iv9r7rc70/conduit-bugfix-4.patch
++  (re-uploaded 2026-09-28, expires 2026-10-01 01:37 UTC)
++- **refactor5c** — chat width cap + full Player.js decomposition (batches 5–7)
++  + touch-friendly cards + GameManager dead-write removal:
++  https://muse.ai/files/1268891369648037/1761565955164792/eu4icrn3kxof8i4n0dqvbqsc/conduit-refactor-5c.patch
++  (expires 2026-09-29 23:08 UTC; supersedes refactor5b)
+diff --git a/index.html b/index.html
+index c57d2a4..749c313 100644
+--- a/index.html
++++ b/index.html
+@@ -137,6 +137,25 @@
+       z-index: 10;
+     }
+ 
++    .card {
++      touch-action: manipulation; /* no tap delay / double-tap zoom on cards */
++      -webkit-user-select: none;
++      user-select: none; /* long-press (hold-to-lock) must not select text */
++      -webkit-touch-callout: none; /* no iOS long-press callout */
++    }
++
++    /* Smaller cards and tighter grid on phones so more fit on screen */
++    @media (max-width: 480px) {
++      #icon-grid {
++        gap: 0.75rem;
++      }
++
++      .card {
++        width: 72px;
++        height: 105px;
++      }
++    }
++
+ 
+     .card-label {
+       position: absolute;
+@@ -152,8 +171,8 @@
+ 
+     #icon-toolbar {
+       position: relative;
++      z-index: 20;
+       display: flex;
+-      ;
+       width: 100%;
+       background: #222;
+       align-items: center;
+diff --git a/mobile.patch b/mobile.patch
+deleted file mode 100644
+index d0ce761..0000000
+--- a/mobile.patch
++++ /dev/null
+@@ -1,218 +0,0 @@
+-From 35fd6b7ebe58cbcf4dca9a75f26519af8b277d38 Mon Sep 17 00:00:00 2001
+-From: Yodo <yodo@local>
+-Date: Fri, 25 Sep 2026 17:43:26 -0400
+-Subject: [PATCH] Mobile touch controls: multi-touch buttons, phone layout
+-
+-- addButton: touchstart/touchend/touchcancel with per-finger tracking
+-- touch-action:none on buttons, bar, and game canvas
+-- Compact 6-col thumb layout under 760px; hide Inventory/Home/Respawn on phone
+----
+- OVERHAUL_PLAN.md               | 64 ++++++++++++++++++++++++++++++++++
+- index.html                     |  1 +
+- package-lock.json              |  1 -
+- src/domStuff/KeyBinds.js       | 16 +++++++++
+- src/domStuff/keyBindsStyle.css | 46 ++++++++++++++++++++++++
+- 5 files changed, 127 insertions(+), 1 deletion(-)
+- create mode 100644 OVERHAUL_PLAN.md
+-
+-diff --git a/OVERHAUL_PLAN.md b/OVERHAUL_PLAN.md
+-new file mode 100644
+-index 0000000..b61a4b3
+---- /dev/null
+-+++ b/OVERHAUL_PLAN.md
+-@@ -0,0 +1,64 @@
+-+# Conduit Overhaul Plan
+-+
+-+Fork of Josh Massarella's Conduit (https://github.com/krazay17/conduit).
+-+Friend's blessing confirmed 2026-09-25 — working on it was his idea.
+-+License: custom non-commercial. Credit Josh, no commercial use/hosting for profit.
+-+
+-+## Codebase snapshot
+-+- ~8,900 lines of JS across 70 files. Phaser 3.90, socket.io, vite.
+-+- Deploys to GitHub Pages via workflow on push to main.
+-+- `Player.js`: 1,515 lines, ~35 methods — the god object. Inline state machine
+-+  (dash/slam/jump/heal/crouch/wallRun/wallSlide/fall/walk/meditate, ~550 lines
+-+  inside setupStates), plus input, health/damage, weapons, networking,
+-+  chat bubbles, money/pickups, animations.
+-+- `states.js` base class exists as a stub — the refactor already wants to happen.
+-+- `healthComponent.js`, `NetworkManager.js` exist — extraction targets ready.
+-+- Dead code: `Level1_old.js` (77 lines, not registered in main.js).
+-+- `GameManager.js`: global mutable singleton (save version 0.118).
+-+- `server/`: 301-line socket.io server + highScores.json.
+-+
+-+## Security flag
+-+`src/domStuff/DiscordStuff.js` has a hardcoded Discord webhook URL + token,
+-+public in the repo. Anyone can post to that Discord. Josh should revoke/rotate it.
+-+
+-+## Phase 0 — Foundation
+-+- npm install, verify `vite dev` runs, verify `vite build` passes.
+-+- Document run/build/deploy flow.
+-+
+-+## Phase 1 — Mobile support (PRIORITY, per Josh 2026-09-25)
+-+Status: in progress.
+-+
+-+Done:
+-+- Touch events on on-screen buttons (`touchstart`/`touchend`/`touchcancel`)
+-+  with per-finger tracking → multi-touch works (hold Left + tap Jump).
+-+- `preventDefault` on touchstart suppresses compat mouse events/scroll/zoom.
+-+- `touch-action: none` on buttons, button bar, and game canvas.
+-+- Phone layout (≤760px): compact 6-column thumb grid —
+-+  Left/Right + Jump/Dash on row 1, Crouch/Heal + Interact/Settings on row 2.
+-+  Inventory/Home/Respawn hidden on phone to keep the bar compact.
+-+
+-+Known tradeoffs / follow-ups:
+-+- Inventory, Home, Respawn buttons hidden on phone — need a mobile way to
+-+  reach them (or accept Esc-menu-only access).
+-+- Button labels still show key names (A, Space, Shift) — meaningless on phone.
+-+  Could swap to icons/labels on touch devices later.
+-+- Not yet tested on a real phone — needs a device pass (multi-touch feel,
+-+  button sizes, performance on mobile GPU).
+-+
+-+## Phase 2 — Quick-win bug fixes (desktop)
+-+- Sort Cards button blocked by invisible overlay (real UI bug).
+-+- Discord widget repeatedly popping open over the game.
+-+- Keyboard focus lost after clicking DOM buttons (keys dead until canvas re-click).
+-+- Delete `Level1_old.js`.
+-+- Flag webhook rotation to Josh.
+-+
+-+## Phase 2 — Structural refactor (the "too much to work on" fix)
+-+- Extract Player.js state machine into `playerStuff/states/` modules.
+-+- Move health/damage into `healthComponent.js`.
+-+- Move networking (syncNetwork, syncGhost, spectatePlayer) into `NetworkManager.js`.
+-+- Extract input handling (handleInput, getInput, decideState) into its own module.
+-+- Trim GameManager singleton surface where cheap.
+-+- No behavior changes — pure refactor, game plays identically.
+-+
+-+## Phase 3 — Game overhaul (to specify with Yaya)
+-+- Direction TBD: new content, features, rebalance, art, etc.
+-diff --git a/index.html b/index.html
+-index 3a0dd6b..c57d2a4 100644
+---- a/index.html
+-+++ b/index.html
+-@@ -70,6 +70,7 @@
+-       align-items: center;
+-       position: relative;
+-       overflow: hidden;
+-+      touch-action: none;
+-     }
+- 
+-     #icon-section {
+-diff --git a/package-lock.json b/package-lock.json
+-index 3d3bf7d..ad7624f 100644
+---- a/package-lock.json
+-+++ b/package-lock.json
+-@@ -1141,7 +1141,6 @@
+-       "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==",
+-       "dev": true,
+-       "license": "MIT",
+--      "peer": true,
+-       "engines": {
+-         "node": ">=12"
+-       },
+-diff --git a/src/domStuff/KeyBinds.js b/src/domStuff/KeyBinds.js
+-index 8e03b09..2860abb 100644
+---- a/src/domStuff/KeyBinds.js
+-+++ b/src/domStuff/KeyBinds.js
+-@@ -35,6 +35,7 @@ export function addButton(imgSrc, key, action = 'Interact', row = 1, col = 1, wi
+-     const button = document.createElement('div');
+-     button.className = 'kb-button';
+-     button.style.width = wid;
+-+    button.dataset.action = action;
+- 
+-     button.style.gridRow = row;
+-     button.style.gridColumn = col;
+-@@ -96,6 +97,21 @@ export function addButton(imgSrc, key, action = 'Interact', row = 1, col = 1, wi
+-         inActive?.();
+-     });
+- 
+-+    // --- Touch support (multi-touch): each finger tracked by identifier so
+-+    // holding Left with one thumb while tapping Jump with another works.
+-+    const activeTouches = new Set();
+-+    button.addEventListener('touchstart', (e) => {
+-+        e.preventDefault(); // suppress compat mouse events + scroll/zoom
+-+        for (const t of e.changedTouches) activeTouches.add(t.identifier);
+-+        active?.();
+-+    }, { passive: false });
+-+    const releaseTouch = (e) => {
+-+        for (const t of e.changedTouches) activeTouches.delete(t.identifier);
+-+        if (activeTouches.size === 0) inActive?.();
+-+    };
+-+    button.addEventListener('touchend', releaseTouch);
+-+    button.addEventListener('touchcancel', releaseTouch);
+-+
+-     return button;
+- }
+- 
+-diff --git a/src/domStuff/keyBindsStyle.css b/src/domStuff/keyBindsStyle.css
+-index d143702..512db63 100644
+---- a/src/domStuff/keyBindsStyle.css
+-+++ b/src/domStuff/keyBindsStyle.css
+-@@ -9,6 +9,7 @@
+-     overflow: hidden;
+-     height: max-content;
+-     width: max-content;
+-+    touch-action: none;
+- }
+- 
+- .kb-grid {
+-@@ -25,6 +26,10 @@
+-     height: 60px;
+-     grid-row: auto;
+-     grid-column: auto;
+-+    touch-action: none;
+-+    -webkit-tap-highlight-color: transparent;
+-+    user-select: none;
+-+    -webkit-user-select: none;
+- }
+- 
+- .kb-image {
+-@@ -63,4 +68,45 @@
+-     text-shadow: black 2px 2px 1px;
+-     text-align: center;
+-     pointer-events: none;
+-+}
+-+
+-+/* --- Phone layout: thumb-friendly compact controls --- */
+-+@media (max-width: 760px) {
+-+    .kb-grid {
+-+        grid-template-columns: repeat(6, 54px);
+-+        padding-left: 0;
+-+        gap: 4px;
+-+    }
+-+
+-+    .kb-button {
+-+        width: 54px;
+-+        height: 54px;
+-+    }
+-+
+-+    .kb-image {
+-+        height: 44px;
+-+    }
+-+
+-+    .kb-label {
+-+        font-size: 16px;
+-+    }
+-+
+-+    .kb-info {
+-+        display: none;
+-+    }
+-+
+-+    /* left thumb: movement | right thumb: actions */
+-+    .kb-button[data-action="Left"]     { grid-row: 1 !important; grid-column: 1 !important; }
+-+    .kb-button[data-action="Right"]    { grid-row: 1 !important; grid-column: 2 !important; }
+-+    .kb-button[data-action="Jump"]     { grid-row: 1 !important; grid-column: 5 !important; }
+-+    .kb-button[data-action="Dash"]     { grid-row: 1 !important; grid-column: 6 !important; }
+-+    .kb-button[data-action="Crouch"]   { grid-row: 2 !important; grid-column: 1 !important; }
+-+    .kb-button[data-action="Heal"]     { grid-row: 2 !important; grid-column: 2 !important; }
+-+    .kb-button[data-action="Interact"] { grid-row: 2 !important; grid-column: 5 !important; }
+-+    .kb-button[data-action="Settings"] { grid-row: 2 !important; grid-column: 6 !important; }
+-+
+-+    /* menu-ish buttons hidden on phone to keep the bar compact */
+-+    .kb-button[data-action="Inventory"],
+-+    .kb-button[data-action="Home"],
+-+    .kb-button[data-action="Respawn"] { display: none !important; }
+- }
+-\ No newline at end of file
+--- 
+-2.43.0
+-
+diff --git a/src/domStuff/Chat.js b/src/domStuff/Chat.js
+index 6de6919..b36cf33 100644
+--- a/src/domStuff/Chat.js
++++ b/src/domStuff/Chat.js
+@@ -10,6 +10,7 @@ let isChatting = false;
+ let message = "";
+ let network;
+ let scene;
++let chatMessageHandler = null;
+ 
+ export function chatNetwork() {
+     network = NetworkManager.instance;
+@@ -17,9 +18,18 @@ export function chatNetwork() {
+         addMessage(d.message)
+     }
+ 
+-    network.socket.on('globalChatMessageUpdate', ({ id, data }) => {
++    // chatNetwork runs on every level load (setupNet) but the socket is the
++    // persistent NetworkManager singleton, so a plain .on() would stack one
++    // listener per visited level and each incoming chat message would be
++    // appended N times. Replace (not stack), same convention as the other
++    // per-level listeners (Days 14/19/20).
++    if (chatMessageHandler) {
++        network.socket.off('globalChatMessageUpdate', chatMessageHandler);
++    }
++    chatMessageHandler = ({ id, data }) => {
+         netMessages(data);
+-    });
++    };
++    network.socket.on('globalChatMessageUpdate', chatMessageHandler);
+ }
+ 
+ export function getChatting() {
+@@ -54,16 +64,29 @@ export default function setupChat() {
+     document.addEventListener('mousedown', (e) => {
+         textInput.blur();
+     })
++    // Touch mirror of the above: the game canvas and on-screen buttons all
++    // preventDefault their touchstart, which suppresses the browser's
++    // synthesized mousedown — so without this, tapping the game area on a
++    // phone would never blur the chat input and the keyboard would stay
++    // disabled. Passive: no need to block scrolling here, just blur.
++    document.addEventListener('touchstart', (e) => {
++        textInput.blur();
++    }, { passive: true })
+     textInput.addEventListener('mousedown', (e) => {
+         e.stopPropagation();
+     })
++    textInput.addEventListener('touchstart', (e) => {
++        e.stopPropagation();
++    })
+     textInput.addEventListener('mouseup', (e) => {
+         e.stopPropagation();
+     })
++    textInput.addEventListener('touchend', (e) => {
++        e.stopPropagation();
++    })
+ 
+     window.addEventListener('keydown', (e) => {
+         if (isChatting) {
+-            console.log(e.code);
+             if (e.code === 'Escape') {
+                 e.preventDefault();
+                 textInput.blur();
+diff --git a/src/domStuff/DiscordStuff.js b/src/domStuff/DiscordStuff.js
+index 710df2c..200aafb 100644
+--- a/src/domStuff/DiscordStuff.js
++++ b/src/domStuff/DiscordStuff.js
+@@ -9,8 +9,22 @@ export function setupDiscordWindow() {
+ 
+     moveDiscordButton.addEventListener('mousedown', (e) => {
+         e.stopPropagation();
++        document.getElementById('chatInput')?.blur();
++        moveDiscordButton.blur();
+         sec.classList.toggle('hidden');
+     })
++
++    // Touch mirror of the mousedown handler above (same pattern as the card
++    // toolbar and settings buttons): preventDefault suppresses the browser's
++    // synthesized mouse events, so a tap toggles the panel once, with no tap
++    // delay or scroll/zoom gesture. Desktop mouse behavior unchanged.
++    moveDiscordButton.addEventListener('touchstart', (e) => {
++        e.stopPropagation();
++        e.preventDefault();
++        document.getElementById('chatInput')?.blur();
++        moveDiscordButton.blur();
++        sec.classList.toggle('hidden');
++    }, { passive: false });
+ }
+ 
+ 
+diff --git a/src/domStuff/IconGrid.js b/src/domStuff/IconGrid.js
+index 14ae1d9..137a519 100644
+--- a/src/domStuff/IconGrid.js
++++ b/src/domStuff/IconGrid.js
+@@ -1,18 +1,50 @@
+ // iconGrid.js
+ let iconGrid = null;
++
++// The DOM outlives the Phaser scenes: setupIconGrid runs on every level load
++// (and on every sort/release re-render), but the #icon-grid container persists
++// across all of them. Keep the container handlers in named functions and
++// remove-then-add them on each setup, so re-setup replaces the old handlers
++// instead of stacking duplicates — otherwise one tap would fire N stacked
++// handlers after N level loads.
++const gridMouseDown = (e) => {
++    e.stopPropagation();
++    e.preventDefault();
++    // Card clicks stop propagation, so the document-level chat blur never
++    // fires — release keyboard control explicitly or keys stay dead.
++    document.getElementById('chatInput')?.blur();
++};
++const gridMouseUp = (e) => {
++    e.stopPropagation();
++    e.preventDefault();
++};
++// Touch mirrors of the mouse handlers above: keep touches on the grid
++// from reaching the game canvas, and release keyboard control.
++const gridTouchStart = (e) => {
++    e.stopPropagation();
++    e.preventDefault();
++    document.getElementById('chatInput')?.blur();
++};
++const gridTouchEnd = (e) => {
++    e.stopPropagation();
++    e.preventDefault();
++};
++const gridContainerHandlers = [
++    ['mousedown', gridMouseDown],
++    ['mouseup', gridMouseUp],
++    ['touchstart', gridTouchStart, { passive: false }],
++    ['touchend', gridTouchEnd, { passive: false }],
++];
++
+ export function setupIconGrid(containerId, icons, onClickHandler) {
+     const container = document.getElementById(containerId);
+     iconGrid = container;
+     if (!container) return console.warn(`Container ${containerId} not found`);
+ 
+-    iconGrid.addEventListener('mousedown', (e) => {
+-        e.stopPropagation();
+-        e.preventDefault();
+-    })
+-    iconGrid.addEventListener('mouseup', (e) => {
+-        e.stopPropagation();
+-        e.preventDefault();
+-    })
++    for (const [type, fn, opts] of gridContainerHandlers) {
++        iconGrid.removeEventListener(type, fn, opts);
++        iconGrid.addEventListener(type, fn, opts);
++    }
+ 
+     container.innerHTML = ''; // clear existing content
+ 
+@@ -41,6 +73,34 @@ export function addCard(icon, onClickHandler) {
+     let holdTimer;
+     let justUnlocked = false;
+ 
++    // Touch tracking mirrors the mouse hold/tap logic below. touchstart
++    // preventDefault() suppresses the browser's synthesized mouse events,
++    // so a tap never double-fires through both paths.
++    let touchActive = false;
++    let touchStartX = 0;
++    let touchStartY = 0;
++    const TOUCH_SLOP_PX = 12; // finger drift allowed before a hold is cancelled
++
++    const toggleLock = () => {
++        icon.locked = !icon.locked; // Lock the icon
++        if (icon.locked) {
++            img.style.outline = '2px solid red'; // Change border to red
++        } else {
++            img.style.outline = ''; // Remove border
++            justUnlocked = true;
++        }
++    };
++
++    const consumeCard = () => {
++        if (icon.locked) return; // Ignore clicks on locked icons
++        if (justUnlocked) {
++            justUnlocked = false;
++            return;
++        }
++        onClickHandler(icon, img);
++        wrapper.remove(); // remove whole card container
++    };
++
+     wrapper.appendChild(img);
+     wrapper.appendChild(label);
+     iconGrid.appendChild(wrapper);
+@@ -49,13 +109,11 @@ export function addCard(icon, onClickHandler) {
+ 
+     wrapper.addEventListener('dragstart', (e) => {
+         draggedCard = wrapper;
+-        console.log(draggedCard);
+         e.dataTransfer.effectAllowed = 'move';
+         setTimeout(() => wrapper.style.display = 'none', 0); // hide original
+     });
+ 
+     wrapper.addEventListener('dragend', () => {
+-        console.log('dragend', draggedCard);
+         draggedCard.style.display = 'block';
+         draggedCard = null;
+     });
+@@ -77,56 +135,98 @@ export function addCard(icon, onClickHandler) {
+ 
+     wrapper.onmousedown = (e) => {
+         if (e.button !== 0) return; // Only handle left mouse button
+-        holdTimer = setTimeout(() => {
+-            icon.locked = !icon.locked; // Lock the icon
+-            if (icon.locked) {
+-                img.style.outline = '2px solid red'; // Change border to red
+-            } else {
+-                img.style.outline = ''; // Remove border
+-                justUnlocked = true;
+-            }
+-        }, 800);
++        holdTimer = setTimeout(toggleLock, 800);
+     };
+ 
+     wrapper.addEventListener('mouseup', (e) => {
+         if (e.button !== 0) return;
+         clearTimeout(holdTimer);
+-        if (icon.locked) return; // Ignore clicks on locked icons
+-        if (justUnlocked) {
+-            justUnlocked = false;
+-            return;
+-        } else {
+-            onClickHandler(icon, img);
+-            wrapper.remove(); // remove whole card container
+-        }
++        consumeCard();
+     });
+ 
+     wrapper.addEventListener('mouseleave', () => {
+         clearTimeout(holdTimer);
+     });
+ 
++    // Touch: tap to consume, press-and-hold (800ms) to lock/unlock —
++    // same as mouse. Sliding the finger off cancels the hold.
++    wrapper.addEventListener('touchstart', (e) => {
++        e.stopPropagation();
++        e.preventDefault(); // no synthetic mouse events, no scroll/zoom gestures
++        if (e.touches.length !== 1) return; // ignore multi-touch
++        touchActive = true;
++        const t = e.touches[0];
++        touchStartX = t.clientX;
++        touchStartY = t.clientY;
++        holdTimer = setTimeout(toggleLock, 800);
++    }, { passive: false });
++
++    wrapper.addEventListener('touchmove', (e) => {
++        if (!touchActive) return;
++        const t = e.touches[0];
++        if (Math.hypot(t.clientX - touchStartX, t.clientY - touchStartY) > TOUCH_SLOP_PX) {
++            clearTimeout(holdTimer); // dragged off — cancel the hold
++            touchActive = false;
++        }
++    }, { passive: true });
++
++    const endTouch = (e) => {
++        if (!touchActive) return;
++        touchActive = false;
++        e.stopPropagation();
++        e.preventDefault();
++        clearTimeout(holdTimer);
++        consumeCard();
++    };
++    wrapper.addEventListener('touchend', endTouch, { passive: false });
++    wrapper.addEventListener('touchcancel', () => {
++        touchActive = false;
++        clearTimeout(holdTimer);
++    });
++
+ }
+ 
+ 
+ 
+ export function setupReleaseButton(onClickHandler) {
+-    const button = document.getElementById('clear-cards-btn');
+-    button.addEventListener('mousedown', (e) => {
++    return setupToolbarButton('clear-cards-btn', onClickHandler);
++}
++
++export function setupSortButton(onClickHandler) {
++    return setupToolbarButton('sortCards-btn', onClickHandler);
++}
++
++// Shared wiring for the two persistent card-toolbar buttons. This runs on
++// every level load and every sort/release re-render, while the buttons
++// persist in the DOM — so it removes the previously wired pair before
++// attaching the new one (replace, don't stack); the handlers stay fresh
++// because they close over the current level scene.
++function setupToolbarButton(buttonId, onClickHandler) {
++    const button = document.getElementById(buttonId);
++    button._conduitHandlers?.forEach(([type, fn, opts]) => button.removeEventListener(type, fn, opts));
++
++    const onMouseDown = (e) => {
+         e.stopPropagation();
+         e.preventDefault();
+         button.blur();
++        document.getElementById('chatInput')?.blur();
+         onClickHandler();
+-    });
+-    return document.getElementById('clear-cards-btn');
+-}
+-
+-export function setupSortButton(onClickHandler) {
+-    const button = document.getElementById('sortCards-btn');
+-    button.addEventListener('mousedown', (e) => {
++    };
++    // Touch mirror of the mousedown handler above (same pattern as the card
++    // grid and settings buttons): preventDefault suppresses the browser's
++    // synthesized mouse events, so a tap fires the handler once, with no tap
++    // delay or scroll/zoom gesture. Desktop mouse behavior unchanged.
++    const onTouchStart = (e) => {
+         e.stopPropagation();
+         e.preventDefault();
+         button.blur();
++        document.getElementById('chatInput')?.blur();
+         onClickHandler();
+-    });
++    };
++    button._conduitHandlers = [
++        ['mousedown', onMouseDown],
++        ['touchstart', onTouchStart, { passive: false }],
++    ];
++    button._conduitHandlers.forEach(([type, fn, opts]) => button.addEventListener(type, fn, opts));
+     return button;
+ }
+diff --git a/src/domStuff/KeyBinds.js b/src/domStuff/KeyBinds.js
+index 2860abb..5419a29 100644
+--- a/src/domStuff/KeyBinds.js
++++ b/src/domStuff/KeyBinds.js
+@@ -13,10 +13,15 @@ export function setupKeybindWindow() {
+         e.stopPropagation();
+         e.preventDefault();
+     })
+-    // kbGrid.addEventListener('mouseup', (e) => {
+-    //     e.stopPropagation();
+-    //     e.preventDefault();
+-    // })
++
++    // Touch mirror of the mousedown handler above: taps landing on the gaps
++    // between buttons behave exactly like desktop clicks — stopPropagation
++    // keeps them from reaching the document-level chat blur, and
++    // preventDefault suppresses the browser's synthesized mouse events.
++    kbGrid.addEventListener('touchstart', (e) => {
++        e.stopPropagation();
++        e.preventDefault();
++    }, { passive: false })
+ 
+     section.appendChild(kbGrid);
+ 
+@@ -79,7 +84,6 @@ export function addButton(imgSrc, key, action = 'Interact', row = 1, col = 1, wi
+     }
+ 
+     document.addEventListener('keydown', (e) => {
+-        console.log(e.code);
+         if (e.code === key) {
+             active?.();
+         }
+@@ -129,6 +133,8 @@ export function addSettingsButton(callbackActive, callbackInActive, texture = 'S
+     button.appendChild(img);
+     kbGrid.appendChild(button);
+ 
++    button.dataset.action = texture;
++
+     const active = () => {
+         img.src = 'assets/' + texture + 'Press' + '.png';
+         callbackActive?.();
+@@ -145,4 +151,20 @@ export function addSettingsButton(callbackActive, callbackInActive, texture = 'S
+     button.addEventListener('mouseup', (e) => {
+         inActive();
+     })
++
++    // Touch mirrors of the mouse handlers above (same pattern as addButton):
++    // preventDefault suppresses the browser's synthesized mouse events, so a
++    // tap fires the callback once, with no tap delay or scroll/zoom gesture.
++    button.addEventListener('touchstart', (e) => {
++        e.preventDefault();
++        active();
++    }, { passive: false });
++    const releaseTouch = (e) => {
++        e.preventDefault();
++        inActive();
++    };
++    button.addEventListener('touchend', releaseTouch, { passive: false });
++    button.addEventListener('touchcancel', releaseTouch, { passive: false });
++
++    return button;
+ }
+\ No newline at end of file
+diff --git a/src/domStuff/Style.css b/src/domStuff/Style.css
+index b7074e6..02775bc 100644
+--- a/src/domStuff/Style.css
++++ b/src/domStuff/Style.css
+@@ -3,6 +3,7 @@
+     display: flex;
+     position: absolute;
+     top: 100px;
++    right: 0;
+     gap: 2px;
+     z-index: 4;
+     transform: translateX(calc(100% - 410px));
+@@ -33,6 +34,7 @@
+     bottom: 150px;
+     height: 200px;
+     width: 450px;
++    max-width: 100vw;
+     z-index: 2;
+ }
+ 
+@@ -64,4 +66,19 @@
+     width: 98%;
+     background-color: rgba(0, 0, 0, 0.5);
+     color: aliceblue;
++}
++
++/* --- Narrow phones: the discord panel (60px toggle + 350px iframe + gap =
++   412px) is wider than the viewport, so the opened panel is cut off at the
++   left. Shrink the iframe to fit and park the section flush right instead of
++   relying on the fixed 410px offset. The parked `.hidden` state still shows
++   just the 60px toggle tab, since its translateX rule is more specific. --- */
++@media (max-width: 411px) {
++    #discord-section iframe {
++        width: calc(100vw - 62px);
++    }
++
++    #discord-section {
++        transform: translateX(0);
++    }
+ }
+\ No newline at end of file
+diff --git a/src/domStuff/keyBindsStyle.css b/src/domStuff/keyBindsStyle.css
+index 512db63..3dc9782 100644
+--- a/src/domStuff/keyBindsStyle.css
++++ b/src/domStuff/keyBindsStyle.css
+@@ -70,8 +70,12 @@
+     pointer-events: none;
+ }
+ 
+-/* --- Phone layout: thumb-friendly compact controls --- */
+-@media (max-width: 760px) {
++/* --- Phone/tablet layout: thumb-friendly compact controls.
++   Triggered by narrow screens OR any touch-primary device (covers phones
++   held in landscape, where width > 760px but touch is the input).
++   Only the 8 placed buttons show; everything else is hidden so stray
++   buttons (Hide, voice, debug) can't blow the grid out with implicit tracks. --- */
++@media (max-width: 760px), (pointer: coarse) {
+     .kb-grid {
+         grid-template-columns: repeat(6, 54px);
+         padding-left: 0;
+@@ -79,20 +83,39 @@
+     }
+ 
+     .kb-button {
+-        width: 54px;
++        width: 54px !important;
+         height: 54px;
++        display: none !important;
+     }
+ 
+     .kb-image {
+         height: 44px;
+     }
+ 
++    /* key names (A, Space, Shift) are meaningless on touch:
++       show the action name instead */
+     .kb-label {
+-        font-size: 16px;
++        display: none;
+     }
+ 
+     .kb-info {
+-        display: none;
++        display: block;
++        position: absolute;
++        top: 50%;
++        left: 50%;
++        transform: translate(-50%, -50%);
++        font-size: 17px;
++    }
++
++    .kb-button[data-action="Left"],
++    .kb-button[data-action="Right"],
++    .kb-button[data-action="Jump"],
++    .kb-button[data-action="Dash"],
++    .kb-button[data-action="Crouch"],
++    .kb-button[data-action="Heal"],
++    .kb-button[data-action="Interact"],
++    .kb-button[data-action="SettingsButton"] {
++        display: flex !important;
+     }
+ 
+     /* left thumb: movement | right thumb: actions */
+@@ -103,10 +126,12 @@
+     .kb-button[data-action="Crouch"]   { grid-row: 2 !important; grid-column: 1 !important; }
+     .kb-button[data-action="Heal"]     { grid-row: 2 !important; grid-column: 2 !important; }
+     .kb-button[data-action="Interact"] { grid-row: 2 !important; grid-column: 5 !important; }
+-    .kb-button[data-action="Settings"] { grid-row: 2 !important; grid-column: 6 !important; }
+-
+-    /* menu-ish buttons hidden on phone to keep the bar compact */
+-    .kb-button[data-action="Inventory"],
+-    .kb-button[data-action="Home"],
+-    .kb-button[data-action="Respawn"] { display: none !important; }
++    /* The working gear replaces the dead label Settings button: the label
++       button has no callback, so on phones it only played the press
++       animation. The gear toggles the Esc menu for real. */
++    .kb-button[data-action="SettingsButton"] { grid-row: 2 !important; grid-column: 6 !important; }
++    .kb-button[data-action="SettingsButton"] .kb-settingsimage {
++        width: 54px;
++        transform: none;
++    }
+ }
+\ No newline at end of file
+diff --git a/src/scenes/EscMenu.js b/src/scenes/EscMenu.js
+index c15e815..8d2a42b 100644
+--- a/src/scenes/EscMenu.js
++++ b/src/scenes/EscMenu.js
+@@ -41,37 +41,23 @@ export default class EscMenu extends Phaser.Scene {
+             fill: '#FF0000',
+         })
+ 
+-        // Slider track and handle
+-        const sliderText = this.add.text(400, 390, 'master');
+-        const track = this.add.rectangle(600, 400, 200, 10, 0xffffff).setOrigin(0.5);
+-        const handle = this.add.circle(600, 400, 10, 0xff0000).setInteractive();
+-        this.input.setDraggable(handle);
+-        handle.name = 'master';
+-        this.slider = { track, handle };
+-
+-        // Slider track and handle
+-        const sliderText1 = this.add.text(400, 440, 'music');
+-        const track1 = this.add.rectangle(600, 450, 200, 10, 0xffffff).setOrigin(0.5);
+-        const handle1 = this.add.circle(600, 450, 10, 0xff0000).setInteractive();
+-        this.input.setDraggable(handle1);
+-        handle1.name = 'music';
+-        this.slider1 = { track1, handle1 };
+-
+-        // Slider track and handle
+-        const sliderText2 = this.add.text(400, 490, 'voice');
+-        const track2 = this.add.rectangle(600, 500, 200, 10, 0xffffff).setOrigin(0.5);
+-        const handle2 = this.add.circle(600, 500, 10, 0xff0000).setInteractive();
+-        this.input.setDraggable(handle2);
+-        handle2.name = 'voice';
+-        this.slider2 = { track2, handle2 };
+-
+-        // Slider track and handle
+-        const sliderText3 = this.add.text(400, 540, 'mic');
+-        const track3 = this.add.rectangle(600, 550, 200, 10, 0xffffff).setOrigin(0.5);
+-        const handle3 = this.add.circle(600, 550, 10, 0xff0000).setInteractive();
+-        this.input.setDraggable(handle3);
+-        handle3.name = 'mic';
+-        this.slider3 = { track3, handle3 };
++        // The four volume sliders share geometry; createSlider builds each one
++        // (label, track, draggable handle) so the blocks don't repeat.
++        const createSlider = (y, name) => {
++            this.add.text(400, y - 10, name);
++            const track = this.add.rectangle(600, y, 200, 10, 0xffffff).setOrigin(0.5);
++            const handle = this.add.circle(600, y, 10, 0xff0000).setInteractive();
++            this.input.setDraggable(handle);
++            handle.name = name;
++            return { track, handle };
++        };
++
++        this.sliders = {
++            master: createSlider(400, 'master'),
++            music: createSlider(450, 'music'),
++            voice: createSlider(500, 'voice'),
++            mic: createSlider(550, 'mic'),
++        };
+ 
+         const donate = this.add.text(300, 25,
+             'Made by: Josh Massarella\nDonate to help me make more games!', {
+@@ -136,10 +122,59 @@ export default class EscMenu extends Phaser.Scene {
+         })
+         addSettingsButton(toggleSettings)
+ 
++        // Menu entries for the three actions with no phone button
++        // (package B: Inventory / Home / Respawn live here instead of
++        // on the thumb grid). Same actions as the C / T / R keys.
++        const menuAction = (label, y, onTap) => {
++            const entry = this.add.text(0, y, label, {
++                fontSize: '28px',
++                color: '#FFFFFF',
++            })
++                .setInteractive({ useHandCursor: true })
++                .on('pointerdown', onTap)
++                .on('pointerover', () => entry.setColor('#00FF00'))
++                .on('pointerout', () => entry.setColor('#FFFFFF'));
++            return entry;
++        };
++
++        menuAction('INVENTORY', 320, () => {
++            const inv = this.gameScene.invMenu;
++            if (!inv) return;
++            if (inv.scene.isVisible()) {
++                inv.scene.setVisible(false);
++                inv.input.enabled = false;
++                inv.scene.setActive(false);
++            } else {
++                inv.scene.setVisible(true);
++                inv.scene.setActive(true);
++                inv.input.enabled = true;
++            }
++            toggleSettings();
++        });
++
++        menuAction('HOME', 370, () => {
++            const player = this.gameScene.player;
++            if (player && ((this.gameScene.scene.key !== 'Home' && player.body.blocked.down && !player.chatting) || !player.alive)) {
++                GameManager.useLastLocation = false;
++                GameManager.save();
++                this.game.scene.start('Home');
++            }
++        });
++
++        menuAction('RESPAWN', 420, () => {
++            const player = this.gameScene.player;
++            if (player && ((player.body.blocked.down && !player.chatting) || !player.alive)) {
++                player.respawnPlayer();
++                toggleSettings();
++            }
++        });
++
+         // Slider drag logic
+         this.input.on('drag', (pointer, gameObject, dragX) => {
+-            const minX = track.x - track.width / 2;
+-            const maxX = track.x + track.width / 2;
++            const slider = this.sliders[gameObject.name];
++            if (!slider) return; // only the four slider handles are draggable
++            const minX = slider.track.x - slider.track.width / 2;
++            const maxX = slider.track.x + slider.track.width / 2;
+ 
+             dragX = Phaser.Math.Clamp(dragX, minX, maxX);
+             gameObject.x = dragX;
+@@ -176,18 +211,15 @@ export default class EscMenu extends Phaser.Scene {
+     // }
+ 
+     setInitialVolume(volume) {
+-        const minX = this.slider.track.x - this.slider.track.width / 2;
+-        const maxX = this.slider.track.x + this.slider.track.width / 2;
+-        this.slider.handle.x = Phaser.Math.Linear(minX, maxX, volume.master);
++        // GameManager.volume persists master/music/voice only; the mic
++        // handle is not persisted, so it keeps its created position.
++        for (const name of ['master', 'music', 'voice']) {
++            const slider = this.sliders[name];
++            const minX = slider.track.x - slider.track.width / 2;
++            const maxX = slider.track.x + slider.track.width / 2;
++            slider.handle.x = Phaser.Math.Linear(minX, maxX, volume[name]);
++        }
+         this.sound.volume = volume.master ?? 1;
+-
+-        const minX1 = this.slider1.track1.x - this.slider1.track1.width / 2;
+-        const maxX1 = this.slider1.track1.x + this.slider1.track1.width / 2;
+-        this.slider1.handle1.x = Phaser.Math.Linear(minX1, maxX1, volume.music);
+-
+-        const minX2 = this.slider2.track2.x - this.slider2.track2.width / 2;
+-        const maxX2 = this.slider2.track2.x + this.slider2.track2.width / 2;
+-        this.slider2.handle2.x = Phaser.Math.Linear(minX2, maxX2, volume.voice);
+     }
+ 
+     openNameInput() {
+diff --git a/src/scenes/Home.js b/src/scenes/Home.js
+index c49230d..4464bc4 100644
+--- a/src/scenes/Home.js
++++ b/src/scenes/Home.js
+@@ -151,7 +151,6 @@ export default class Home extends BaseGame {
+             if (portal.targetScene && this.scene.key !== portal.targetScene) {
+                 GameManager.useLastLocation = false;
+                 GameManager.save();
+-                console.log(portal.targetScene)
+                 this.scene.start(portal.targetScene);
+             }
+         });
+diff --git a/src/scenes/Level1_old.js b/src/scenes/Level1_old.js
+deleted file mode 100644
+index 3b269c4..0000000
+--- a/src/scenes/Level1_old.js
++++ /dev/null
+@@ -1,78 +0,0 @@
+-import BaseGame from './_basegame.js';
+-
+-export default class Level1Old extends BaseGame {
+-  constructor() {
+-    super('Level1Old');
+-  }
+-
+-  create() {
+-    this.setupSky({ sky1: 'redsky0', sky2: false, sky3: false });
+-    this.sky2 = this.add.image(600, 400, 'redsky1').setScale(1).setScrollFactor(.3);
+-    this.sky3 = this.add.image(600, 400, 'redsky2').setScale(1).setScrollFactor(.6);
+-    this.setupWorld(-1200, 0, 2400, 900);
+-    this.setupMusic('music0');
+-    this.setupPlayer(-1100, 300);
+-    this.setupGroups();
+-    this.setupCollisions();
+-
+-
+-    // this.physics.add.collider(this.player, this.turrets, (player, turret) => {
+-    //   this.player.touchWall()
+-    // }, null, this);
+-
+-    // Spawns
+-    const moveingPlatformPos = [
+-      [-1100,], [-900, 150], [-400, 100], [-200,], [-150, 50], [100,], [300,], [700,], [900,], [1100,],
+-      [-900, 300], [-600, 200], [-150, 300], [100, 200], [300, 100], [700, 450], [900, 200], [1100, 100],
+-      [-900, 500], [-300, 350], [-100, 225], [300, 600], [600, 550], [1000, 500], [1100, 300],
+-      [-1100, 400], [-900, 700], [-500, 800], [-300, 700], [-100, 700], [100, 800], [300, 850], [500, 700], [700, 700], [900, 700], [1100, 700],
+-    ];
+-
+-    moveingPlatformPos.forEach(pos => this.walkableGroup.create(pos[0], pos[1], 'platform')
+-      .setVelocityY(20));
+-
+-    this.time.addEvent({
+-      delay: Phaser.Math.Between(2000, 5000),
+-      callback: () => this.spawnManager.spawnCoin(Phaser.Math.Between(-1100, 1100), 0),
+-      loop: true
+-    });
+-
+-    this.spawnManager.spawnSunMan(1900, 0);
+-    this.spawnManager.spawnSunMan(2000, 400);
+-    this.time.addEvent({
+-      delay: Phaser.Math.Between(2000, 10000),
+-      loop: true,
+-    });
+-
+-    this.spawnManager.spawnBullets(1900, 50, 8);
+-    this.time.addEvent({
+-      delay: 3000,
+-      callback: () => this.spawnManager.spawnBullets(1900, 50, 8),
+-      loop: true
+-    });
+-
+-    this.turrets = [this.spawnManager.spawnTurret(1400, 100)];
+-
+-    this.turrets.forEach(turret => {
+-      this.spawnManager.spawnFireballs(turret.body.x, turret.body.y + 40)
+-    });
+-
+-    this.time.addEvent({
+-      delay: 1000,
+-      callback: () => this.turrets.forEach(turret => {
+-        if (turret.body) this.spawnManager.spawnFireballs(turret.body.x, turret.body.y + 40);
+-      }),
+-      loop: true
+-    });
+-
+-  }
+-
+-  update(time, delta) {
+-    super.update(time, delta);
+-    this.walkableGroup.getChildren().forEach(platform => {
+-      if (platform.body.y > this.physics.world.bounds.height)
+-        platform.body.y = 0 - platform.body.height;
+-    });
+-
+-  }
+-}
+\ No newline at end of file
+diff --git a/src/scenes/MainMenu.js b/src/scenes/MainMenu.js
+deleted file mode 100644
+index 53106cf..0000000
+--- a/src/scenes/MainMenu.js
++++ /dev/null
+@@ -1,7 +0,0 @@
+-export default class MainMenu extends Phaser.Scene
+-{
+-    constructor ()
+-    {
+-        super('MainMenu');
+-    }
+-}
+\ No newline at end of file
+diff --git a/src/scenes/Preloader.js b/src/scenes/Preloader.js
+index 377c008..cea0253 100644
+--- a/src/scenes/Preloader.js
++++ b/src/scenes/Preloader.js
+@@ -42,6 +42,10 @@ export default class Preloader extends Phaser.Scene {
+         this.load.image('zap', 'assets/Zap.png');
+         this.load.image('auraicon', 'assets/AuraIcon.png');
+         this.load.image('auraicondesat', 'assets/AuraIconDesat.png');
++        // The aura weapon's slot name is 'zap', so the weapon-icon bar looks up
++        // the 'zapicon' texture (setWeaponIcon builds name + 'icon'). Without it,
++        // Phaser renders the green __MISSING texture if the aura is ever re-equipped.
++        this.load.image('zapicon', 'assets/AuraIcon.png');
+         this.load.image('bottomplat', 'assets/BottomPlat.png');
+         this.load.image('duckman', 'assets/duckman.png');
+         this.load.image('turret', 'assets/TurretPlatform.png');
+@@ -142,10 +146,6 @@ export default class Preloader extends Phaser.Scene {
+             frameHeight: 256,
+             frameWidth: 256
+         });
+-        this.load.spritesheet('sunsheet', 'assets/SunSheet.png', {
+-            frameWidth: 256,
+-            frameHeight: 256
+-        });
+         this.load.spritesheet('fireballsheet', 'assets/FireballSheet.png', {
+             frameWidth: 66,
+             frameHeight: 26
+diff --git a/src/scenes/_basegame.js b/src/scenes/_basegame.js
+index dbdd984..f102f87 100644
+--- a/src/scenes/_basegame.js
++++ b/src/scenes/_basegame.js
+@@ -21,35 +21,7 @@ export default class BaseGame extends Phaser.Scene {
+ 
+   update(time, delta) {
+     if (this.player && this.playerSpawned) this.player.handleInput(time, delta);
+-    // if (this.network.voiceChat) {
+-    //   this.network.voiceChat.updateVolumes();
+-    // };
+-
+-    // if (this.network) {
+-    //   this.network.socket.emit('playerMove', {
+-    //     x: this.player.x,
+-    //     y: this.player.y
+-    //   });
+-    // }
+   }
+-  // _ensureMediaElementPlayback(audioContext) {
+-  //   if (audioContext.state !== 'running') {
+-  //     return;
+-  //   }
+-
+-  //   const silentAudio = new Audio('assets/Whip1.wav');
+-  //   silentAudio.volume = 0.001;
+-  //   silentAudio.preload = 'auto';
+-
+-  //   silentAudio.play().then(() => {
+-  //     console.log('Silent audio played to unlock media elements.');
+-  //     silentAudio.pause();
+-  //     silentAudio.src = '';
+-  //     silentAudio.load();
+-  //   }).catch(e => {
+-  //     console.warn('Silent audio play failed:', e);
+-  //   });
+-  // }
+   setupWorld(xleft = 0, ytop = 0, width = 6400, height = 12800) {
+     GameManager.load();
+     this.physics.world.setBounds(xleft, ytop, width, height);
+@@ -64,59 +36,36 @@ export default class BaseGame extends Phaser.Scene {
+         this.network.voiceChat._initMic();
+       }
+     }
+-    addSettingsButton(joinVoiceChat, null, 'VoiceButton', 15);
+-    addSettingsButton(()=> {
++    // The DOM button bar is global and outlives levels, but setupWorld runs on
++    // every level load — replace (not stack) the per-level voice/debug
++    // buttons. Their callbacks close over the current scene, so they can't be
++    // created just once; removing the previous pair first keeps buttons and
++    // their listeners from piling up unboundedly. (Same convention as the
++    // Preloader's document.*Button refs.)
++    document.voiceButton?.remove();
++    document.debugButton?.remove();
++    document.voiceButton = addSettingsButton(joinVoiceChat, null, 'VoiceButton', 15);
++    document.debugButton = addSettingsButton(()=> {
+       console.log(this.game.scene.getScenes())
+     }, undefined, undefined, 17, 2)
+ 
+ 
+-    // document.body.addEventListener('click', (event) => {
+-    //   if (!this.network.voiceChat || !this.network.voiceChat.audioContext) {
+-    //     return;
+-    //   }
+-
+-    //   const audioContext = this.network.voiceChat.audioContext;
+-
+-    //   if (audioContext.state === 'suspended') {
+-    //     audioContext.resume().then(() => {
+-    //       console.log('AudioContext resumed.');
+-    //       this._ensureMediaElementPlayback(audioContext);
+-    //     }).catch(e => {
+-    //       console.error('Failed to resume AudioContext:', e);
+-    //     });
+-    //   } else {
+-    //     console.log('AudioContext already running.');
+-    //     this._ensureMediaElementPlayback(audioContext);
+-    //   }
+-    // }, { once: true });
+-
+-
+-
+-    // Scroll wheel to zoom
+-    // this.input.on('wheel', (wheel) => {
+-    //   if (!this.zoom) this.zoom = 1;
+-    //   // Step 1: Adjust zoom
+-    //   this.zoom -= wheel.deltaY / 1000;
+-
+-    //   // Step 2: Clamp
+-    //   this.zoom = Phaser.Math.Clamp(this.zoom, 0.6, 3);
+-
+-    //   // Step 3: Snap to nearest 0.2
+-    //   this.zoom = Phaser.Math.Snap.To(this.zoom, 0.1);
+-
+-
+-    //   this.sky1.setScale(1 / this.zoom);
+-    //   this.cameras.main.setZoom(this.zoom)
+-    //   //this.resizeBackgroundToFill();
+-    // })
+-
+-
+-    window.addEventListener('beforeunload', () => {
++    // The window 'beforeunload' listener is global, but setupWorld runs on
++    // every level load — without removal the save-on-exit handlers would
++    // stack, firing (and saving) N times on tab close after N level visits.
++    // Register with a named handler and remove it when the scene shuts down,
++    // the same replace-not-stack convention as the other per-level listeners
++    // (Day 14/16/19). Phaser emits 'shutdown' on scene.start transitions.
++    const saveOnUnload = () => {
+       GameManager.area = this.key;
+       GameManager.location.x = this.player.x;
+       GameManager.location.y = this.player.y;
+       GameManager.useLastLocation = true;
+       GameManager.save();
++    };
++    window.addEventListener('beforeunload', saveOnUnload);
++    this.events.once('shutdown', () => {
++      window.removeEventListener('beforeunload', saveOnUnload);
+     });
+ 
+     this.events.once('shutdown', () => {
+@@ -125,15 +74,6 @@ export default class BaseGame extends Phaser.Scene {
+     this.events.once('destroy', () => {
+       this.cleanupScene();
+     }, this);
+-
+-
+-    // window.addEventListener('focus', () => {
+-    //   this.sound.mute = false;
+-    // });
+-
+-    // window.addEventListener('blur', () => {
+-    //   this.sound.mute = true;
+-    // });
+   }
+ 
+   setupNet() {
+@@ -150,6 +90,11 @@ export default class BaseGame extends Phaser.Scene {
+     if (sky2) this.sky2 = this.add.image(1000, 1200, 'purplesky1').setScale(1).setScrollFactor(.2).setOrigin(.5, .5);
+     if (sky3) this.sky3 = this.add.image(2400, 2000, 'purplesky2').setScale(1).setScrollFactor(.6).setOrigin(.5, .5);
+ 
++    // setupSky runs on every level load but the ScaleManager is global, so a
++    // plain .on() would stack one resizeSky per visited level — dead scenes'
++    // handlers would keep firing on every window resize, touching destroyed
++    // images. Replace (not stack), same as the DOM handlers in IconGrid.
++    this.scale.off('resize', this.resizeSky, this);
+     this.scale.on('resize', this.resizeSky, this);
+   }
+ 
+@@ -497,23 +442,6 @@ export default class BaseGame extends Phaser.Scene {
+         this.spawnManager.spawnBullet(x, y);
+       }
+     })
+-
+-    // if (!this.bulletSpawnLocs) {
+-    //   this.bulletSpawnLocs = [];
+-
+-    //   this.time.addEvent({
+-    //     delay: delay,
+-    //     loop: true,
+-    //     callback: () => {
+-    //       this.bulletSpawnLocs.forEach(([x, y]) => {
+-    //         this.spawnManager.spawnBullet(x, y);
+-    //         console.log('fire')
+-
+-    //       })
+-    //     }
+-    //   })
+-    // }
+-    // this.bulletSpawnLocs.push([x, y])
+   }
+ 
+   spawnSourceBlock(x, y) {
+diff --git a/src/scenes/playerUI.js b/src/scenes/playerUI.js
+index 38a9779..799992f 100644
+--- a/src/scenes/playerUI.js
++++ b/src/scenes/playerUI.js
+@@ -19,7 +19,6 @@ export default class PlayerUI extends Phaser.Scene {
+         });
+         this.player.on('moneyChanged', (v) => {
+             const money = GameManager.power.money
+-            console.log(money);
+             this.scoreText.text = 'Source: ' + (money) + '\n' + getRank(money);
+         })
+     }
+@@ -214,7 +213,6 @@ export default class PlayerUI extends Phaser.Scene {
+         this.chatting = false;
+ 
+         if (!message) return;
+-        console.log('Player typed:', message);
+ 
+         this.player.makeChatBubble(message);
+ 
+diff --git a/src/tester.ts b/src/tester.ts
+deleted file mode 100644
+index 19d4600..0000000
+--- a/src/tester.ts
++++ /dev/null
+@@ -1,30 +0,0 @@
+-import Phaser from "phaser";
+-
+-const big = 5;
+-const small = 1;
+-
+-namespace foo {
+-    type thick = {
+-        x: number;
+-    }
+-}
+-
+-const thing  = {
+-    antialias: true,
+-    
+-    
+-    foo(bar: boolean,) {
+-        this.antialias = bar;
+-    },
+-
+-    foo2(gun: Object)
+-    {
+-        const number = 5;
+-
+-        const other = {
+-            number,
+-            
+-        }
+-        gun = {}
+-    }
+-}
+\ No newline at end of file
+diff --git a/src/things/GameManager.js b/src/things/GameManager.js
+index 0689b7e..8fbfea5 100644
+--- a/src/things/GameManager.js
++++ b/src/things/GameManager.js
+@@ -85,7 +85,6 @@ export default {
+         this.area = keep.area ?? 'Home';
+         this.power = keep.power ?? { money: 0, spent: 0, auraLevel: 1, vault: 0};
+         this.upgrades = keep.upgrades ?? {};
+-        this.money = keep.money ?? 0;
+         this.stats = keep.stats ?? { healthMax: 25, health: 25 };
+         this.weapons = keep.weapons ?? { left: 'shurikan', right: 'sword', aura: 'zap' };
+         this.volume = keep.volume ?? { master: 1, music: 1, voice: 1 };
+diff --git a/src/things/MovingPlatform.js b/src/things/MovingPlatform.js
+deleted file mode 100644
+index 6e9b9c8..0000000
+--- a/src/things/MovingPlatform.js
++++ /dev/null
+@@ -1,9 +0,0 @@
+-export default class MovingPlatform extends Phaser.Physics.Arcade.StaticGroup
+-{
+-    constructor(scene, x, y, id = 'movingPlatform')
+-    {
+-        super(scene.physics.world, scene);
+-
+-        const platform = scene.create()
+-    }
+-}
+\ No newline at end of file
+diff --git a/src/things/NetworkManager.js b/src/things/NetworkManager.js
+index 40134a8..9e39035 100644
+--- a/src/things/NetworkManager.js
++++ b/src/things/NetworkManager.js
+@@ -51,7 +51,12 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
+ 
+       this.socket.emit('pingCheck');
+ 
+-      setInterval(() => {
++      // 'connect' fires on every reconnect, but setInterval is permanent —
++      // without clearing the old one, each reconnect would add another
++      // 5s ping timer (same replace-not-stack convention as the per-level
++      // handler fixes). Keep exactly one ping timer live.
++      if (this.pingInterval) clearInterval(this.pingInterval);
++      this.pingInterval = setInterval(() => {
+         this.socket.emit('pingCheck');
+       }, 5000);
+ 
+diff --git a/src/things/Player.js b/src/things/Player.js
+index 0c9a65b..ee176e6 100644
+--- a/src/things/Player.js
++++ b/src/things/Player.js
+@@ -5,6 +5,10 @@ import ChatBubble from "./chatBubble.js";
+ import PlayerContainer from "./playerContainer.js";
+ import SoundUtil, { playSound } from "./soundUtils.js";
+ import { getChatting } from "../domStuff/Chat.js";
++import { setupPlayerStates } from "./playerStuff/playerStates.js";
++import { playerTakeDamage, playerAdjustHealth, playerUpdateHealth } from "./playerStuff/playerHealth.js";
++import { playerSyncGhost, playerSyncNetwork, playerSpectatePlayer } from "./playerStuff/playerNetwork.js";
++import { playerHandleInput, playerDecideState, playerGetInput, playerSetState, playerWalkLerp } from "./playerStuff/playerInput.js";
+ 
+ export default class Player extends Phaser.Physics.Arcade.Sprite {
+     constructor(scene, x, y) {
+@@ -286,22 +290,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
+     }
+ 
+     spectatePlayer(spectate = false, index = 0) {
+-        if (!spectate) {
+-            this.spectating = false;
+-            this.scene.cameras.main.startFollow(this, false, .05, .05);
+-            return;
+-        }
+-        if (this.network.otherPlayers) {
+-            const numberofPlayers = Object.keys(this.network.otherPlayers).length;
+-            this.spectateIndex = Phaser.Math.Clamp(this.spectateIndex + index, 0, numberofPlayers);
+-            const otherPlayer = Object.values(this.network.otherPlayers)[this.spectateIndex] || Object.values(this.network.otherPlayers)[0];
+-            if (otherPlayer) {
+-                this.scene.cameras.main.startFollow(otherPlayer, false, .1, .1)
+-                this.spectating = true;
+-            } else {
+-                this.spectatePlayer(false);
+-            }
+-        }
++        return playerSpectatePlayer(this, spectate, index);
+     }
+ 
+     respawnPlayer() {
+@@ -363,651 +352,32 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
+     }
+ 
+     handleInput(time, delta) {
+-        if (!this.body || !this.body.velocity) return;
+-        if (this.chatting) {
+-            this.setState('idle');
+-            this.states[this.currentState].update(delta, {}, time);
+-        }
+-
+-        if (!this.stunned && this.alive && !this.chatting) {
+-
+-            let input = this.getInput();
+-
+-            if (getChatting()) {
+-                input = {};
+-            }
+-            if ((input.left || input.right) && this.spectating) {
+-                this.spectatePlayer(false);
+-            }
+-            if (input.left && !input.right) {
+-                this.flipX = true;
+-                this.dir = -1;
+-            } else if (input.right && !input.left) {
+-                this.flipX = false;
+-                this.dir = 1;
+-            }
+-
+-            this.decideState(input, delta);       // decide what state to be in based on input
+-            this.states[this.currentState].update(delta, input, time); // update current state logic
+-            if ((this.slamCD || this.slidePower < 600) && !this.isSliding && !this.isCrouch) {
+-                this.slidePower = Math.min(600, this.slidePower += delta);
+-                this.slamCD = Math.max(0, this.slamCD -= delta);
+-            }
+-        }
+-
+-        this.animChooser(delta);
++        return playerHandleInput(this, time, delta);
+     }
+ 
+     decideState(input, delta) {
+-        const { left, right, jump, dash, crouch, heal, slam } = input;
+-
+-        if (dash && this.canDash && !this.isDashing) return this.setState('dash', input);
+-        if ((slam && !this.slamCD && !this.body.blocked.down)) return this.setState('slam', input);
+-        if (jump && this.canJump) return this.setState('jump', input);
+-        if (heal) return this.setState('heal');
+-        if ((crouch)) return this.setState('crouch', input);
+-        if (this.wallRunning) return this.setState('wallRun', input);
+-        if (this.wallSlide) return this.setState('wallSlide', input);
+-        if (!this.body.blocked.down) return this.setState('fall', input);
+-        if (left || right) return this.setState('walk', input);
+-        this.meditateTimer += delta / 1000;
+-        if (this.meditateTimer > 3) return this.setState('meditate');
+-        return this.setState('idle', input);
++        return playerDecideState(this, input, delta);
+     }
+ 
+     getInput() {
+-        return {
+-            left: this.controls.left.isDown || document.leftButton.isClicked,
+-            right: this.controls.right.isDown || document.rightButton.isClicked,
+-            jump: this.controls.jump.isDown || document.jumpButton.isClicked,
+-            dash: this.controls.dash.isDown || document.dashButton.isClicked,
+-            crouch: this.controls.down.isDown || document.crouchButton.isClicked,
+-            heal: this.controls.up.isDown || document.healButton.isClicked,
+-            slam: Phaser.Input.Keyboard.JustDown(this.controls.down),
+-        };
++        return playerGetInput(this);
+     }
+ 
+     setState(newState, input) {
+-        if (!this.scene) return;
+-        if (this.scene.time.now < this.stateLockout) return;
+-        if (newState === this.currentState) return;
+-
+-        if (newState === 'idle' && !this.body.blocked.down) {
+-            newState = 'fall';
+-        }
+-        this.states[this.currentState].exit();
+-        this.currentState = newState;
+-        this.states[this.currentState].enter(input);
+-        console.log(this.currentState);
++        return playerSetState(this, newState, input);
+     }
+ 
+     walkLerp(delta, a, modify) {
+-        if (!modify) modify = this.body.blocked.down ? .5 : .1;
+-
+-        modify = Phaser.Math.Clamp(modify * (delta / 16.666), 0, 1);
+-        return Phaser.Math.Linear(this.body.velocity.x, a, modify);
++        return playerWalkLerp(this, delta, a, modify);
+     }
+ 
+     setupStates() {
+-        this.stateLockout = 0;
+-        this.currentState = 'idle';
+-        this.slidePower = 0;
+-        this.slamCD = 0;
+-        this.healCD = 0;
+-        this.wallRunLeft = 540;
+-        this.wallRunRight = 540;
+-        this.dashDuration = 250;
+-
+-        this.wallrunDecayRate = .5;
+-        // idle: {
+-        //     enter: () => { },
+-        //     update: () => { },
+-        //     exit: () => { },
+-        // },
+-
+-        function lerp(start, end, t) {
+-            return start + (end - start) * t;
+-        }
+-
+-        this.states = {
+-            idle: {
+-                enter: () => {
+-                    this.resetJump();
+-                    this.tryUncrouch();
+-                    this.isSlamming = 0;
+-                    this.meditateTimer = 0;
+-                },
+-                update: (delta) => {
+-                    this.setVelocityX(this.walkLerp(delta, 0));
+-                },
+-                exit: () => { },
+-            },
+-
+-            meditate: {
+-                enter: () => {
+-                    this.isMeditating = 1;
+-                    // Create particle manager
+-                    this.meditateEmitter = this.scene.add.particles(this.x, this.y, 'greenFlame', {
+-                        speed: 100,
+-                        lifespan: 500,
+-                        alpha: .35,
+-                        scale: { start: 1, end: 0 },
+-                        blendMode: 'ADD',
+-                    });
+-
+-                },
+-                update: (delta) => {
+-                    this.setVelocityX(this.walkLerp(delta, 0))
+-                    this.healCD += delta / 500;
+-
+-                    if (this.healCD >= 1) {
+-                        if (this.health >= this.healthMax) return;
+-                        this.healCD = 0;
+-                        this.updateHealth(1);
+-                    }
+-                },
+-                exit: () => {
+-                    this.meditateEmitter.stop();
+-                    this.isMeditating = 0;
+-                    this.meditateTimer = 0;
+-                },
+-            },
+-
+-            walk: {
+-                enter: () => {
+-                    this.resetJump();
+-                    this.tryUncrouch();
+-                    this.isSlamming = 0;
+-                    this.isWalking = true;
+-                    if (!this.network.socket.connected) {
+-                        this.network.socket.connect();
+-                    }
+-                },
+-                update: (delta, input) => {
+-                    const { left, right } = input;
+-                    const dir = this.speed * this.dir;
+-                    this.tryUncrouch();
+-
+-                    this.setVelocityX(this.walkLerp(delta, dir));
+-                },
+-                exit: () => {
+-                    this.isWalking = false;
+-                },
+-            },
+-
+-            fall: {
+-                enter: () => {
+-                    this.canJump = false;
+-                    this.falling = true;
+-                },
+-                update: (delta, input) => {
+-                    const { left, right, jump } = input;
+-                    const dir = (left ? -1 : right ? 1 : 0) * (this.speed);
+-                    if ((left && !right && (this.body.velocity.x > -250)) || (!left && right && (this.body.velocity.x < 250))) {
+-                        this.setVelocityX(this.walkLerp(delta, dir, .1));
+-                    } else {
+-                        this.setVelocityX(this.walkLerp(delta, 0, .005));
+-                    }
+-
+-                    this.tryUncrouch();
+-                    if (this.body.velocity.y >= 0) {
+-                        this.reachApex = true;
+-                    }
+-                    // jump && 
+-                    if ((this.body.blocked.left || this.body.blocked.right)) {
+-                        this.setState('wallSlide', input);
+-                    }
+-
+-                },
+-                exit: () => {
+-                    this.falling = false;
+-                    this.isMantling = false;
+-                    this.setMaxVelocity(1500, 1500);
+-                },
+-            },
+-
+-            wallSlide: {
+-                enter: () => {
+-                    this.wallSlide = true;
+-                },
+-                update: (delta, input) => {
+-                    const { left, right, jump } = input;
+-                    const dir = (left ? -1 : right ? 1 : 0) * (this.speed);
+-                    if ((left && !right) || (!left && right)) {
+-                        this.setVelocityX(this.walkLerp(delta, dir, .1));
+-                    } else {
+-                        if (this.body.blocked.left) {
+-                            this.setVelocityX(-1);
+-                            this.flipX = true;
+-                        }
+-                        if (this.body.blocked.right) {
+-                            this.setVelocityX(1);
+-                            this.flipX = false;
+-                        }
+-                        // if (jump) {
+-                        //     const jumpHeight = leftJump ? this.wallRunLeft : this.wallRunRight;
+-                        //     this.setState('wallJump', { left: leftJump, right: !leftJump, height: jumpHeight });
+-                        // }
+-                    }
+-                    if (this.body.velocity.y > 350) {
+-                        this.setVelocityY(lerp(this.body.velocity.y, 350, .035));
+-                    }
+-                    if (jump) {
+-                        this.setState('wallRun', input);
+-                    }
+-                    if ((!this.body.blocked.left && !this.body.blocked.right) || this.body.blocked.down) {
+-                        this.wallSlide = false;
+-                    }
+-                },
+-                exit: () => {
+-                    this.wallSlide = false;
+-                },
+-            },
+-
+-            wallRun: {
+-                enter: (input) => {
+-                    const { left, right } = input;
+-                    this.wallRunning = true;
+-                    this.stopRun = false;
+-                    const xSpeed = Math.min(800, Math.abs(this.body.velocity.x));
+-
+-                    if (this.body.blocked.left) {
+-                        if (this.wallRunLeft < (-this.body.velocity.y)) {
+-                            this.wallRunLeft = (-this.body.velocity.y)
+-                        } else if (this.wallRunLeft < xSpeed) {
+-                            this.wallRunLeft = Math.min(xSpeed, 680);
+-                        }
+-                        this.wallRunRight = 540;
+-                        this.wallJumpRightMin = 540;
+-                    }
+-
+-                    if (this.body.blocked.right) {
+-                        if (this.wallRunRight < (-this.body.velocity.y)) {
+-                            this.wallRunRight = (-this.body.velocity.y)
+-                        } else if (this.wallRunRight < xSpeed) {
+-                            this.wallRunRight = Math.min(xSpeed, 680);
+-                        }
+-                        this.wallRunLeft = 540;
+-                        this.wallJumpLeftMin = 540;
+-                    }
+-                    this.wallrunDecayRate = .5;
+-
+-                },
+-                update: (delta, input, time) => {
+-                    const { left, right, jump } = input;
+-
+-                    //const dir = (left ? -1 : right ? 1 : 0) * (this.speed);
+-
+-                    // if ((left && !right) || (!left && right)) {
+-                    //     this.setVelocityX(dir);
+-                    // } else {
+-                    //     this.setVelocityX(this.walkLerp(delta, 0, .02));
+-                    // }
+-
+-                    if (this.body.blocked.left) {
+-                        this.setVelocityY(-this.wallRunLeft);
+-                        this.setVelocityX(-1);
+-
+-                        this.wallRunLeft = Math.max(-200, this.wallRunLeft - (this.wallrunDecayRate * delta));
+-                        this.bufferLeftWallJump = this.scene.time.now + 55;
+-                        this.bufferRightWallJump = 0;
+-
+-                        const leftBuffer = true;
+-                        if (right || !jump) {
+-                            this.setState('wallJump', { left: leftBuffer, right: false, height: this.wallRunLeft })
+-                        }
+-
+-                        if (this.wallRunLeft <= 0) {
+-                            this.wallSlide = true;
+-                        }
+-                        // if (!left && !this.stopRun) {
+-                        //     this.stopRun = true;
+-                        //     this.wallRunLeft = 0;
+-                        // }
+-
+-                        // if (!left && !this.stopRun) {
+-                        //     this.stopRun = true;
+-                        //     this.wallRunLeft = this.wallRunLeft > 0 ? 0 : this.wallRunLeft;
+-                        //     //this.wallrunDecayRate = 3;
+-                        // }
+-                    }
+-                    if (this.body.blocked.right) {
+-                        this.setVelocityY(-this.wallRunRight);
+-                        this.setVelocityX(1);
+-                        this.wallRunRight = Math.max(-200, this.wallRunRight - (this.wallrunDecayRate * delta));
+-                        this.bufferRightWallJump = this.scene.time.now + 55;
+-                        this.bufferLeftWallJump = 0;
+-
+-                        const rightBuffer = true;
+-                        if (left || !jump) {
+-                            this.setState('wallJump', { left: false, right: rightBuffer, height: this.wallRunRight })
+-                        }
+-
+-                        if (this.wallRunRight <= 0) {
+-                            this.wallSlide = true;
+-                        }
+-                        // if (!right && !this.stopRun) {
+-                        //     this.stopRun = true;
+-                        //     this.wallRunRight = 0;
+-                        // }
+-
+-                        // if (!right && !this.stopRun) {
+-                        //     this.stopRun = true;
+-                        //     this.wallRunRight = this.wallRunRight > 0 ? 0 : this.wallRunRight;
+-                        //     //this.wallrunDecayRate = 3;
+-                        // }
+-                    }
+-                    if (this.body.blocked.up) {
+-                        this.wallRunLeft = 0;
+-                        this.wallRunRight = 0;
+-                        this.wallRunning = false;
+-                        this.wallSlide = true;
+-                    }
+-
+-                    const leftBuffer = this.bufferLeftWallJump > this.scene.time.now;
+-                    const rightBuffer = this.bufferRightWallJump > this.scene.time.now
+-
+-                    if ((right && !left) && rightBuffer && !this.body.blocked.right) {
+-                        this.setVelocityY(0);
+-                        this.setVelocityX(250);
+-                        this.isMantling = this.scene.time.now;
+-                    }
+-                    if ((left && !right) && leftBuffer && !this.body.blocked.left) {
+-                        this.setVelocityY(0);
+-                        this.setVelocityX(-250);
+-                        this.isMantling = this.scene.time.now;
+-                    }
+-                    if (!this.body.blocked.left && !this.body.blocked.right) {
+-                        this.wallRunning = false;
+-                    }
+-                    // !jump || 
+-                    // if (((right && jump) && leftBuffer) || ((left && jump) && rightBuffer)) {
+-                    //     const jumpHeight = leftBuffer ? this.wallRunLeft : this.wallRunRight;
+-                    //     this.setState('wallJump', { left: leftBuffer, right: rightBuffer, height: jumpHeight })
+-                    // }
+-
+-                },
+-                exit: () => {
+-                    this.wallRunning = false;
+-                    this.wallSlide = false;
+-                },
+-            },
+-
+-            wallJump: {
+-                enter: ({ left, right, height }) => {
+-                    this.isWallJumping = true;
+-                    this.wallJumpTimer = this.scene.time.now;
+-                    this.isMantling = 0;
+-                    this.stateLockout = this.scene.time.now + 25;
+-
+-                    if (right) {
+-                        this.setVelocity(-350, Phaser.Math.Clamp(-height, -680, -this.wallJumpRightMin));
+-                        this.flipX = true;
+-                        this.bufferRightWallJump = 0;
+-                        this.wallRunRight /= 2;
+-                        this.wallJumpRightMin = 100;
+-                        this.dir = -1;
+-                    }
+-                    if (left) {
+-                        this.setVelocity(350, Phaser.Math.Clamp(-height, -680, -this.wallJumpLeftMin));
+-                        this.flipX = false;
+-                        this.bufferLeftWallJump = 0;
+-                        this.wallRunLeft /= 2;
+-                        this.wallJumpLeftMin = 100;
+-                        this.dir = 1;
+-                    }
+-                },
+-                update: () => { },
+-                exit: () => {
+-                    this.wallSlide = false;
+-                },
+-            },
+-
+-            crouch: {
+-                enter: (input) => {
+-                    const { left, right } = input;
+-                    this.isCrouch = true;
+-                    this.hitBoxSize = { y: 180, yo: 70 };
+-                    this.setSize(115, 180);
+-                    this.setOffset(70, 70);
+-
+-                    if (this.body.blocked.down && (!left && !right)) {
+-                        this.slidePower = 100;
+-                    }
+-
+-                    this.stop();
+-                    this.setFrame(6);
+-                },
+-                update: (delta, input) => {
+-                    const { left, right, crouch } = input;
+-                    const dir = (left ? -1 : right ? 1 : 0) * (this.speed / 2);
+-                    if ((left && !right && (this.body.velocity.x > -250)) || (!left && right && (this.body.velocity.x < 250))) {
+-                        this.setVelocityX(this.walkLerp(delta, dir, .1));
+-                    } else {
+-                        this.setVelocityX(this.walkLerp(delta, 0, .02));
+-                    }
+-
+-                    if (this.body.blocked.down) {
+-                        this.resetJump();
+-                        this.isSlamming = 0;
+-
+-                        if ((left || right) && this.slidePower > 100) {
+-                            this.setState('slide');
+-                            return;
+-                        }
+-                    }
+-                },
+-                exit: () => {
+-                },
+-            },
+-
+-            slam: {
+-                enter: (input) => {
+-                    this.isSlamming = this.scene.time.now;
+-                    const { left, right } = input;
+-                    const move = (left ? -1 : right ? 1 : 0) * (this.speed);
+-                    this.slamCD = 800;
+-                    this.setVelocity(move * 1.125, Math.max(350, this.body.velocity.y));
+-                },
+-                update: () => { },
+-                exit: () => { },
+-            },
+-
+-            slide: {
+-                enter: () => {
+-                    const currentSpeed = Math.abs(this.body.velocity.x);
+-                    const speed = currentSpeed > this.slidePower ? currentSpeed * this.dir : this.slidePower * this.dir;
+-                    this.slidePower = 0;
+-
+-                    this.isSliding = true;
+-                    this.canSlide = false;
+-                    this.setVelocityX(speed);
+-
+-                    this.slideTime = this.scene.time.now + 500;
+-                    this.stateLockout = this.slideTime;
+-
+-                    this.stop();
+-                    this.setFrame(9);
+-                },
+-                update: (delta, input) => {
+-                    if (Math.abs(this.body.velocity.x) < 150) {
+-                        this.stateLockout = 0;
+-                        this.setState('crouch', input);
+-                        return;
+-                    }
+-
+-                    if (!input.crouch) {
+-                        this.stateLockout = 0;
+-                        this.setState('idle');
+-                        return;
+-                    }
+-
+-                    if (input.jump && this.canJump && this.body.blocked.down) {
+-                        this.stateLockout = 0;
+-                        this.setState('jump', input);
+-                        return;
+-                    }
+-
+-                    if (this.slideTime <= this.scene.time.now && input.crouch) {
+-                        this.stateLockout = 0;
+-                        this.setState('crouch', input);
+-                        return;
+-                    }
+-
+-
+-                    if (input.dash && this.canDash) {
+-                        this.stateLockout = 0;
+-                        this.setState('dash', input);
+-                        return;
+-                    }
+-                },
+-                exit: () => {
+-                    this.isSliding = false;
+-                },
+-            },
+-
+-            jump: {
+-                enter: (input) => {
+-                    this.isJumping = true;
+-                    this.reachApex = false;
+-                    this.jumpPower = 200;
+-                    this.jumpMax = 425;
+-                    this.isSlamming = 0;
+-                    this.setVelocityY(-this.jumpPower);
+-                    this.tryUncrouch();
+-
+-                    this.stop();
+-                    this.setFrame(5);
+-                },
+-                update: (delta, input) => {
+-                    const { left, right, jump } = input;
+-                    const move = (left ? -1 : right ? 1 : 0) * this.speed;
+-                    this.setVelocityY(-this.jumpPower);
+-                    this.setVelocityX(this.walkLerp(delta, move, .2))
+-                    this.jumpPower += delta * 1.5;
+-
+-                    if (this.jumpPower >= this.jumpMax) {
+-                        this.canJump = false;
+-                    }
+-                },
+-                exit: () => {
+-                    this.isJumping = false;
+-                    this.canJump = false;
+-                },
+-            },
+-
+-            dash: {
+-                enter: () => {
+-                    this.stateLockout = this.scene.time.now + this.dashDuration;
+-
+-                    this.canDash = false;
+-                    this.canResetDash = false;
+-                    this.isDashing = true;
+-                    this.iFrame = true;
+-                    this.body.setAllowGravity(false);
+-                    this.tryUncrouch();
+-                    this.wallRunLeft = 540;
+-                    this.wallRunRight = 540;
+-
+-                    this.dashTime = 0;
+-                    this.startDash = this.dashSpeed * this.dir;
+-                    this.endDash = this.startDash / 3;
+-
+-                    this.thisDashCooldownTimer = this.scene.time.addEvent({
+-                        delay: 650,
+-                        callback: () => {
+-                            this.canResetDash = true;
+-                            if (this.queResetDash) this.resetDash();
+-                        }
+-                    });
+-                    this.clearTint();
+-                },
+-                update: (delta, input) => {
+-                    this.dashTime += delta;
+-
+-                    const t = Phaser.Math.Clamp((this.dashTime) / this.dashDuration, 0, 1);
+-                    const currentSpeed = lerp(this.startDash, this.endDash, t)
+-                    if (isNaN(currentSpeed)) {
+-
+-                        this.setVelocityX(0);
+-                    } else {
+-                        this.setVelocityX(currentSpeed);
+-                        this.setVelocityY(0);
+-                    }
+-
+-                    if (this.body.blocked.left || this.body.blocked.right) {
+-                        this.stateLockout = 0;
+-                        if (input.jump) {
+-                            this.body.blocked.left ? this.wallRunLeft = 540 : this.wallRunRight = 540;
+-                            this.setState('wallRun', input);
+-                        } else {
+-                            this.setState('idle');
+-                        }
+-                    }
+-                    if (input.crouch && !this.slamCD) {
+-                        this.stateLockout = 0;
+-                        this.setState('slam', input);
+-                    }
+-                },
+-                exit: () => {
+-                    this.body.setAllowGravity(true);
+-                    this.isDashing = false;
+-                    this.iFrame = false;
+-                },
+-            },
+-
+-            grapple: {
+-                enter: (hitLocation) => {
+-                    this.isGrappling = true;
+-
+-                    const dx = this.x - hitLocation.x;
+-                    const dy = this.y - hitLocation.y;
+-                    const dist = Math.sqrt(dx * dx + dy * dy);
+-                    const tangX = -dy / dist;
+-                    const tangY = dx / dist;
+-                    const tangVel = (this.body.velocity.x * tangX) + (this.body.velocity.y * tangY);
+-                    const angle = Math.atan2(dy, dx);
+-                },
+-                update: () => { },
+-                exit: () => {
+-                    this.isGrappling = false;
+-                },
+-            },
+-
+-            heal: {
+-                enter: () => {
+-                    this.isHealing = true;
+-                    this.setMaxVelocity(135, 135);
+-                    this.tryUncrouch();
+-                },
+-                update: (delta, input) => {
+-                    const { left, right } = input;
+-                    const move = (left ? -1 : right ? 1 : 0) * (this.speed);
+-                    this.setVelocityX(this.walkLerp(delta, move))
+-                    this.healCD += delta / 250;
+-
+-                    if (this.healCD >= 1) {
+-                        if (this.health >= this.healthMax) return;
+-                        this.healCD = 0;
+-                        this.updateHealth(1);
+-                        this.updateMoney(-1);
+-                    }
+-                },
+-                exit: () => {
+-                    this.isHealing = false;
+-                    this.setMaxVelocity(1500, 1500);
+-                },
+-            },
+-        }
++        setupPlayerStates(this);
+     }
+ 
+ 
+     updateHealth(value) {
+-        if (this.health >= this.healthMax) return;
+-        this.health += value;
+-        GameManager.stats.health = this.health;
+-        this.emit('updateHealth', this.health, this.healthMax);
+-        this.network.socket.emit('updateHealth', this.health, this.healthMax);
++        return playerUpdateHealth(this, value);
+     }
+ 
+     resetJump(dash = true) {
+@@ -1193,32 +563,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
+     }
+ 
+     syncGhost(delta, state) {
+-        if (!this.network?.socket) return;
+-
+-        this.statSyncTimer = (this.statSyncTimer || 0) + delta;
+-
+-        if (this.statSyncTimer < 15) return;
+-
+-        this.statSyncTimer = 0;
+-
+-        // const state = {
+-        //     x: this.x,
+-        //     y: this.y,
+-        //     f: this.flipX ? 1 : 0,
+-        //     a: this.anims?.currentAnim?.key || '',
+-        //     c: this.isCrouch ? 1 : 0,
+-        //     j: !this.body.blocked.down ? 1 : 0,
+-        //     s: this.isSliding ? 1 : 0,
+-        //     h: this.isHealing ? 1 : 0,
+-        //     t: this.stunned ? 1 : 0,
+-        //     d: this.isDashing ? 1 : 0,
+-        // };
+-
+-        if (!this.hasStateChanged(state, this.lastSentState)) return;
+-
+-        this.lastSentState = { ...state };
+-
+-        this.network.socket.emit('playerStateRequest', state);
++        return playerSyncGhost(this, delta, state);
+     }
+ 
+     hasStateChanged(newState, oldState) {
+@@ -1231,67 +576,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
+     }
+ 
+     TakeDamage(x, y, damage = 1, stunDuration = 300, actor) {
+-        if (this.scene.physics.isPaused) return false;
+-        if (this.iFrame) return false;
+-        if (this.hitCD) return false;
+-        if (!this.alive) return false;
+-
+-        this.hitCD = true;
+-        this.setTint('0xFF0000');
+-        this.scene.time.addEvent({
+-            delay: 500,
+-            callback: () => {
+-                this.hitCD = false;
+-                if (this.canDash) {
+-                    if (!this.alive) return;
+-                    this.setTint(this.buffColor);
+-                } else {
+-                    this.setTint();
+-                }
+-            }
+-        });
+-
+-        if (this.adjustHealth(-damage) === 0) {
+-            this.Died(actor);
+-        }
+-
+-        this.updateMoney(-damage);
+-
+-        this.makeScreenFlash();
+-        playSound(this.scene, this.damageSound);
+-
+-        if (this.currentState === 'meditate') return true;
+-
+-        if (stunDuration > 0) {
+-            this.stunned = true;
+-            this.emit('playerstunned');
+-            this.stop();
+-            this.setFrame(8);
+-            this.scene.time.removeEvent(this.stunTimer);
+-            this.stunTimer = this.scene.time.addEvent({
+-                delay: stunDuration,
+-                callback: () => {
+-                    this.stunned = false;
+-                    this.setFrame(5);
+-                }
+-            });
+-        }
+-
+-        this.setVelocityX(x);
+-        this.setVelocityY(y);
+-
+-
+-        return true;
++        return playerTakeDamage(this, x, y, damage, stunDuration, actor);
+     }
+ 
+     adjustHealth(amount) {
+-
+-        this.health = Phaser.Math.Clamp(this.health + amount, 0, this.healthMax);
+-        GameManager.stats.health = this.health;
+-        this.emit('updateHealth', this.health, this.healthMax);
+-        this.network.socket.emit('updateHealth', this.health, this.healthMax);
+-
+-        return this.health;
++        return playerAdjustHealth(this, amount);
+     }
+ 
+     resetDash(force = false) {
+@@ -1390,24 +679,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
+     }
+ 
+     syncNetwork() {
+-        if (this.tryingToSync) return;
+-        this.tryingToSync = true;
+-        setTimeout(() => this.tryingToSync = false, 500);
+-
+-        if (!this.network.socket.connected && !this.network.socket.reconnecting) {
+-            this.network.socket.connect();
+-        }
+-
+-        this.network.socket.emit('playerSyncRequest', {
+-            data: {
+-                location: GameManager.location,
+-                name: GameManager.name,
+-                power: GameManager.power,
+-                stats: GameManager.stats
+-            }
+-        });
+-        console.log(GameManager.stats.health);
+-
++        return playerSyncNetwork(this);
+     }
+ 
+     equipWeapon(name = 'Shurikan', slot = 0,) {
+@@ -1507,7 +779,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
+     }
+ 
+     hitLaser(hit) {
+-        console.log('hit lasorr');
+         const dirX = this.x - hit.x;
+         const dirY = this.y - hit.y;
+         this.TakeDamage(dirX, dirY, 1, 0);
+diff --git a/src/things/_baseEnemy.js b/src/things/_baseEnemy.js
+index 0078b66..9b6f26b 100644
+--- a/src/things/_baseEnemy.js
++++ b/src/things/_baseEnemy.js
+@@ -91,7 +91,6 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
+         // })
+ 
+         this.applyDamage(x, y, damage, stunDuration);
+-        console.log(damage);
+ 
+         return true;
+ 
+diff --git a/src/things/healthComponent.js b/src/things/healthComponent.js
+deleted file mode 100644
+index 789ccbd..0000000
+--- a/src/things/healthComponent.js
++++ /dev/null
+@@ -1,24 +0,0 @@
+-export default class Health {
+-    constructor (healthMax){
+-        this.healthMax = healthMax;
+-        this.health = healthMax;
+-    }
+-
+-    onAdd(actor) {
+-        this.actor = actor;
+-    }
+-
+-    takeDamage(actor, damage) {
+-        this.health = Math.max(0, this.health -= damage);
+-        if (this.health === 0) {
+-            this.die(actor);
+-        }
+-    }
+-
+-    die(actor) {
+-        console.log(this.actor, 'died');
+-        actor.updateMoney(this.healthMax);
+-        //this.actor.active(false);
+-        //this.actor.setVisible(false);
+-    }
+-}
+\ No newline at end of file
+diff --git a/src/things/playerStuff/playerHealth.js b/src/things/playerStuff/playerHealth.js
+new file mode 100644
+index 0000000..d27018d
+--- /dev/null
++++ b/src/things/playerStuff/playerHealth.js
+@@ -0,0 +1,79 @@
++// playerHealth.js — health/damage logic extracted from Player.
++// Behavior-preserving move (2026-09-27): every `this` was the player.
++// External callers (enemies, bullets, NetworkManager) keep working because
++// Player keeps thin wrappers with the original method names.
++
++import GameManager from "../GameManager.js";
++import { playSound } from "../soundUtils.js";
++
++export function playerAdjustHealth(player, amount) {
++
++    player.health = Phaser.Math.Clamp(player.health + amount, 0, player.healthMax);
++    GameManager.stats.health = player.health;
++    player.emit('updateHealth', player.health, player.healthMax);
++    player.network.socket.emit('updateHealth', player.health, player.healthMax);
++
++    return player.health;
++}
++
++export function playerTakeDamage(player, x, y, damage, stunDuration, actor) {
++    if (player.scene.physics.isPaused) return false;
++    if (player.iFrame) return false;
++    if (player.hitCD) return false;
++    if (!player.alive) return false;
++
++    player.hitCD = true;
++    player.setTint('0xFF0000');
++    player.scene.time.addEvent({
++        delay: 500,
++        callback: () => {
++            player.hitCD = false;
++            if (player.canDash) {
++                if (!player.alive) return;
++                player.setTint(player.buffColor);
++            } else {
++                player.setTint();
++            }
++        }
++    });
++
++    if (player.adjustHealth(-damage) === 0) {
++        player.Died(actor);
++    }
++
++    player.updateMoney(-damage);
++
++    player.makeScreenFlash();
++    playSound(player.scene, player.damageSound);
++
++    if (player.currentState === 'meditate') return true;
++
++    if (stunDuration > 0) {
++        player.stunned = true;
++        player.emit('playerstunned');
++        player.stop();
++        player.setFrame(8);
++        player.scene.time.removeEvent(player.stunTimer);
++        player.stunTimer = player.scene.time.addEvent({
++            delay: stunDuration,
++            callback: () => {
++                player.stunned = false;
++                player.setFrame(5);
++            }
++        });
++    }
++
++    player.setVelocityX(x);
++    player.setVelocityY(y);
++
++
++    return true;
++}
++
++export function playerUpdateHealth(player, value) {
++    if (player.health >= player.healthMax) return;
++    player.health += value;
++    GameManager.stats.health = player.health;
++    player.emit('updateHealth', player.health, player.healthMax);
++    player.network.socket.emit('updateHealth', player.health, player.healthMax);
++}
+diff --git a/src/things/playerStuff/playerInput.js b/src/things/playerStuff/playerInput.js
+new file mode 100644
+index 0000000..85cd5ff
+--- /dev/null
++++ b/src/things/playerStuff/playerInput.js
+@@ -0,0 +1,92 @@
++// playerInput.js — per-frame input driver extracted from Player.
++// Behavior-preserving move (2026-09-27): every `this` was the player.
++// handleInput is called from preUpdate; setState is called by the
++// state definitions and decideState. Wrappers on Player keep the
++// original interface so nothing else changes.
++
++import { getChatting } from "../../domStuff/Chat.js";
++
++export function playerWalkLerp(player, delta, a, modify) {
++    if (!modify) modify = player.body.blocked.down ? .5 : .1;
++
++    modify = Phaser.Math.Clamp(modify * (delta / 16.666), 0, 1);
++    return Phaser.Math.Linear(player.body.velocity.x, a, modify);
++}
++
++export function playerSetState(player, newState, input) {
++    if (!player.scene) return;
++    if (player.scene.time.now < player.stateLockout) return;
++    if (newState === player.currentState) return;
++
++    if (newState === 'idle' && !player.body.blocked.down) {
++        newState = 'fall';
++    }
++    player.states[player.currentState].exit();
++    player.currentState = newState;
++    player.states[player.currentState].enter(input);
++}
++
++export function playerGetInput(player) {
++    return {
++        left: player.controls.left.isDown || document.leftButton.isClicked,
++        right: player.controls.right.isDown || document.rightButton.isClicked,
++        jump: player.controls.jump.isDown || document.jumpButton.isClicked,
++        dash: player.controls.dash.isDown || document.dashButton.isClicked,
++        crouch: player.controls.down.isDown || document.crouchButton.isClicked,
++        heal: player.controls.up.isDown || document.healButton.isClicked,
++        slam: Phaser.Input.Keyboard.JustDown(player.controls.down),
++    };
++}
++
++export function playerDecideState(player, input, delta) {
++    const { left, right, jump, dash, crouch, heal, slam } = input;
++
++    if (dash && player.canDash && !player.isDashing) return player.setState('dash', input);
++    if ((slam && !player.slamCD && !player.body.blocked.down)) return player.setState('slam', input);
++    if (jump && player.canJump) return player.setState('jump', input);
++    if (heal) return player.setState('heal');
++    if ((crouch)) return player.setState('crouch', input);
++    if (player.wallRunning) return player.setState('wallRun', input);
++    if (player.wallSlide) return player.setState('wallSlide', input);
++    if (!player.body.blocked.down) return player.setState('fall', input);
++    if (left || right) return player.setState('walk', input);
++    player.meditateTimer += delta / 1000;
++    if (player.meditateTimer > 3) return player.setState('meditate');
++    return player.setState('idle', input);
++}
++
++export function playerHandleInput(player, time, delta) {
++    if (!player.body || !player.body.velocity) return;
++    if (player.chatting) {
++        player.setState('idle');
++        player.states[player.currentState].update(delta, {}, time);
++    }
++
++    if (!player.stunned && player.alive && !player.chatting) {
++
++        let input = player.getInput();
++
++        if (getChatting()) {
++            input = {};
++        }
++        if ((input.left || input.right) && player.spectating) {
++            player.spectatePlayer(false);
++        }
++        if (input.left && !input.right) {
++            player.flipX = true;
++            player.dir = -1;
++        } else if (input.right && !input.left) {
++            player.flipX = false;
++            player.dir = 1;
++        }
++
++        player.decideState(input, delta);       // decide what state to be in based on input
++        player.states[player.currentState].update(delta, input, time); // update current state logic
++        if ((player.slamCD || player.slidePower < 600) && !player.isSliding && !player.isCrouch) {
++            player.slidePower = Math.min(600, player.slidePower += delta);
++            player.slamCD = Math.max(0, player.slamCD -= delta);
++        }
++    }
++
++    player.animChooser(delta);
++}
+diff --git a/src/things/playerStuff/playerNetwork.js b/src/things/playerStuff/playerNetwork.js
+new file mode 100644
+index 0000000..ee4837e
+--- /dev/null
++++ b/src/things/playerStuff/playerNetwork.js
+@@ -0,0 +1,71 @@
++// playerNetwork.js — ghost sync / spectate logic extracted from Player.
++// Behavior-preserving move (2026-09-27): every `this` was the player.
++
++import GameManager from "../GameManager.js";
++
++export function playerSyncNetwork(player) {
++    if (player.tryingToSync) return;
++    player.tryingToSync = true;
++    setTimeout(() => player.tryingToSync = false, 500);
++
++    if (!player.network.socket.connected && !player.network.socket.reconnecting) {
++        player.network.socket.connect();
++    }
++
++    player.network.socket.emit('playerSyncRequest', {
++        data: {
++            location: GameManager.location,
++            name: GameManager.name,
++            power: GameManager.power,
++            stats: GameManager.stats
++        }
++    });
++}
++
++export function playerSyncGhost(player, delta, state) {
++    if (!player.network?.socket) return;
++
++    player.statSyncTimer = (player.statSyncTimer || 0) + delta;
++
++    if (player.statSyncTimer < 15) return;
++
++    player.statSyncTimer = 0;
++
++    // const state = {
++    //     x: player.x,
++    //     y: player.y,
++    //     f: player.flipX ? 1 : 0,
++    //     a: player.anims?.currentAnim?.key || '',
++    //     c: player.isCrouch ? 1 : 0,
++    //     j: !player.body.blocked.down ? 1 : 0,
++    //     s: player.isSliding ? 1 : 0,
++    //     h: player.isHealing ? 1 : 0,
++    //     t: player.stunned ? 1 : 0,
++    //     d: player.isDashing ? 1 : 0,
++    // };
++
++    if (!player.hasStateChanged(state, player.lastSentState)) return;
++
++    player.lastSentState = { ...state };
++
++    player.network.socket.emit('playerStateRequest', state);
++}
++
++export function playerSpectatePlayer(player, spectate, index) {
++    if (!spectate) {
++        player.spectating = false;
++        player.scene.cameras.main.startFollow(player, false, .05, .05);
++        return;
++    }
++    if (player.network.otherPlayers) {
++        const numberofPlayers = Object.keys(player.network.otherPlayers).length;
++        player.spectateIndex = Phaser.Math.Clamp(player.spectateIndex + index, 0, numberofPlayers);
++        const otherPlayer = Object.values(player.network.otherPlayers)[player.spectateIndex] || Object.values(player.network.otherPlayers)[0];
++        if (otherPlayer) {
++            player.scene.cameras.main.startFollow(otherPlayer, false, .1, .1)
++            player.spectating = true;
++        } else {
++            player.spectatePlayer(false);
++        }
++    }
++}
+diff --git a/src/things/playerStuff/playerStates.js b/src/things/playerStuff/playerStates.js
+new file mode 100644
+index 0000000..1bafb49
+--- /dev/null
++++ b/src/things/playerStuff/playerStates.js
+@@ -0,0 +1,557 @@
++// playerStates.js — state definitions extracted from Player.setupStates().
++// Behavior-preserving move (2026-09-27): every `this` in the original
++// method was the player, so it is now spelled `player`. The state driver
++// (handleInput/decideState/setState/getInput) still lives on Player.
++
++export function setupPlayerStates(player) {
++        player.stateLockout = 0;
++        player.currentState = 'idle';
++        player.slidePower = 0;
++        player.slamCD = 0;
++        player.healCD = 0;
++        player.wallRunLeft = 540;
++        player.wallRunRight = 540;
++        player.dashDuration = 250;
++
++        player.wallrunDecayRate = .5;
++        // idle: {
++        //     enter: () => { },
++        //     update: () => { },
++        //     exit: () => { },
++        // },
++
++        function lerp(start, end, t) {
++            return start + (end - start) * t;
++        }
++
++        player.states = {
++            idle: {
++                enter: () => {
++                    player.resetJump();
++                    player.tryUncrouch();
++                    player.isSlamming = 0;
++                    player.meditateTimer = 0;
++                },
++                update: (delta) => {
++                    player.setVelocityX(player.walkLerp(delta, 0));
++                },
++                exit: () => { },
++            },
++
++            meditate: {
++                enter: () => {
++                    player.isMeditating = 1;
++                    // Create particle manager
++                    player.meditateEmitter = player.scene.add.particles(player.x, player.y, 'greenFlame', {
++                        speed: 100,
++                        lifespan: 500,
++                        alpha: .35,
++                        scale: { start: 1, end: 0 },
++                        blendMode: 'ADD',
++                    });
++
++                },
++                update: (delta) => {
++                    player.setVelocityX(player.walkLerp(delta, 0))
++                    player.healCD += delta / 500;
++
++                    if (player.healCD >= 1) {
++                        if (player.health >= player.healthMax) return;
++                        player.healCD = 0;
++                        player.updateHealth(1);
++                    }
++                },
++                exit: () => {
++                    player.meditateEmitter.stop();
++                    player.isMeditating = 0;
++                    player.meditateTimer = 0;
++                },
++            },
++
++            walk: {
++                enter: () => {
++                    player.resetJump();
++                    player.tryUncrouch();
++                    player.isSlamming = 0;
++                    player.isWalking = true;
++                    if (!player.network.socket.connected) {
++                        player.network.socket.connect();
++                    }
++                },
++                update: (delta, input) => {
++                    const { left, right } = input;
++                    const dir = player.speed * player.dir;
++                    player.tryUncrouch();
++
++                    player.setVelocityX(player.walkLerp(delta, dir));
++                },
++                exit: () => {
++                    player.isWalking = false;
++                },
++            },
++
++            fall: {
++                enter: () => {
++                    player.canJump = false;
++                    player.falling = true;
++                },
++                update: (delta, input) => {
++                    const { left, right, jump } = input;
++                    const dir = (left ? -1 : right ? 1 : 0) * (player.speed);
++                    if ((left && !right && (player.body.velocity.x > -250)) || (!left && right && (player.body.velocity.x < 250))) {
++                        player.setVelocityX(player.walkLerp(delta, dir, .1));
++                    } else {
++                        player.setVelocityX(player.walkLerp(delta, 0, .005));
++                    }
++
++                    player.tryUncrouch();
++                    if (player.body.velocity.y >= 0) {
++                        player.reachApex = true;
++                    }
++                    // jump && 
++                    if ((player.body.blocked.left || player.body.blocked.right)) {
++                        player.setState('wallSlide', input);
++                    }
++
++                },
++                exit: () => {
++                    player.falling = false;
++                    player.isMantling = false;
++                    player.setMaxVelocity(1500, 1500);
++                },
++            },
++
++            wallSlide: {
++                enter: () => {
++                    player.wallSlide = true;
++                },
++                update: (delta, input) => {
++                    const { left, right, jump } = input;
++                    const dir = (left ? -1 : right ? 1 : 0) * (player.speed);
++                    if ((left && !right) || (!left && right)) {
++                        player.setVelocityX(player.walkLerp(delta, dir, .1));
++                    } else {
++                        if (player.body.blocked.left) {
++                            player.setVelocityX(-1);
++                            player.flipX = true;
++                        }
++                        if (player.body.blocked.right) {
++                            player.setVelocityX(1);
++                            player.flipX = false;
++                        }
++                        // if (jump) {
++                        //     const jumpHeight = leftJump ? player.wallRunLeft : player.wallRunRight;
++                        //     player.setState('wallJump', { left: leftJump, right: !leftJump, height: jumpHeight });
++                        // }
++                    }
++                    if (player.body.velocity.y > 350) {
++                        player.setVelocityY(lerp(player.body.velocity.y, 350, .035));
++                    }
++                    if (jump) {
++                        player.setState('wallRun', input);
++                    }
++                    if ((!player.body.blocked.left && !player.body.blocked.right) || player.body.blocked.down) {
++                        player.wallSlide = false;
++                    }
++                },
++                exit: () => {
++                    player.wallSlide = false;
++                },
++            },
++
++            wallRun: {
++                enter: (input) => {
++                    const { left, right } = input;
++                    player.wallRunning = true;
++                    player.stopRun = false;
++                    const xSpeed = Math.min(800, Math.abs(player.body.velocity.x));
++
++                    if (player.body.blocked.left) {
++                        if (player.wallRunLeft < (-player.body.velocity.y)) {
++                            player.wallRunLeft = (-player.body.velocity.y)
++                        } else if (player.wallRunLeft < xSpeed) {
++                            player.wallRunLeft = Math.min(xSpeed, 680);
++                        }
++                        player.wallRunRight = 540;
++                        player.wallJumpRightMin = 540;
++                    }
++
++                    if (player.body.blocked.right) {
++                        if (player.wallRunRight < (-player.body.velocity.y)) {
++                            player.wallRunRight = (-player.body.velocity.y)
++                        } else if (player.wallRunRight < xSpeed) {
++                            player.wallRunRight = Math.min(xSpeed, 680);
++                        }
++                        player.wallRunLeft = 540;
++                        player.wallJumpLeftMin = 540;
++                    }
++                    player.wallrunDecayRate = .5;
++
++                },
++                update: (delta, input, time) => {
++                    const { left, right, jump } = input;
++
++                    //const dir = (left ? -1 : right ? 1 : 0) * (player.speed);
++
++                    // if ((left && !right) || (!left && right)) {
++                    //     player.setVelocityX(dir);
++                    // } else {
++                    //     player.setVelocityX(player.walkLerp(delta, 0, .02));
++                    // }
++
++                    if (player.body.blocked.left) {
++                        player.setVelocityY(-player.wallRunLeft);
++                        player.setVelocityX(-1);
++
++                        player.wallRunLeft = Math.max(-200, player.wallRunLeft - (player.wallrunDecayRate * delta));
++                        player.bufferLeftWallJump = player.scene.time.now + 55;
++                        player.bufferRightWallJump = 0;
++
++                        const leftBuffer = true;
++                        if (right || !jump) {
++                            player.setState('wallJump', { left: leftBuffer, right: false, height: player.wallRunLeft })
++                        }
++
++                        if (player.wallRunLeft <= 0) {
++                            player.wallSlide = true;
++                        }
++                        // if (!left && !player.stopRun) {
++                        //     player.stopRun = true;
++                        //     player.wallRunLeft = 0;
++                        // }
++
++                        // if (!left && !player.stopRun) {
++                        //     player.stopRun = true;
++                        //     player.wallRunLeft = player.wallRunLeft > 0 ? 0 : player.wallRunLeft;
++                        //     //player.wallrunDecayRate = 3;
++                        // }
++                    }
++                    if (player.body.blocked.right) {
++                        player.setVelocityY(-player.wallRunRight);
++                        player.setVelocityX(1);
++                        player.wallRunRight = Math.max(-200, player.wallRunRight - (player.wallrunDecayRate * delta));
++                        player.bufferRightWallJump = player.scene.time.now + 55;
++                        player.bufferLeftWallJump = 0;
++
++                        const rightBuffer = true;
++                        if (left || !jump) {
++                            player.setState('wallJump', { left: false, right: rightBuffer, height: player.wallRunRight })
++                        }
++
++                        if (player.wallRunRight <= 0) {
++                            player.wallSlide = true;
++                        }
++                        // if (!right && !player.stopRun) {
++                        //     player.stopRun = true;
++                        //     player.wallRunRight = 0;
++                        // }
++
++                        // if (!right && !player.stopRun) {
++                        //     player.stopRun = true;
++                        //     player.wallRunRight = player.wallRunRight > 0 ? 0 : player.wallRunRight;
++                        //     //player.wallrunDecayRate = 3;
++                        // }
++                    }
++                    if (player.body.blocked.up) {
++                        player.wallRunLeft = 0;
++                        player.wallRunRight = 0;
++                        player.wallRunning = false;
++                        player.wallSlide = true;
++                    }
++
++                    const leftBuffer = player.bufferLeftWallJump > player.scene.time.now;
++                    const rightBuffer = player.bufferRightWallJump > player.scene.time.now
++
++                    if ((right && !left) && rightBuffer && !player.body.blocked.right) {
++                        player.setVelocityY(0);
++                        player.setVelocityX(250);
++                        player.isMantling = player.scene.time.now;
++                    }
++                    if ((left && !right) && leftBuffer && !player.body.blocked.left) {
++                        player.setVelocityY(0);
++                        player.setVelocityX(-250);
++                        player.isMantling = player.scene.time.now;
++                    }
++                    if (!player.body.blocked.left && !player.body.blocked.right) {
++                        player.wallRunning = false;
++                    }
++                    // !jump || 
++                    // if (((right && jump) && leftBuffer) || ((left && jump) && rightBuffer)) {
++                    //     const jumpHeight = leftBuffer ? player.wallRunLeft : player.wallRunRight;
++                    //     player.setState('wallJump', { left: leftBuffer, right: rightBuffer, height: jumpHeight })
++                    // }
++
++                },
++                exit: () => {
++                    player.wallRunning = false;
++                    player.wallSlide = false;
++                },
++            },
++
++            wallJump: {
++                enter: ({ left, right, height }) => {
++                    player.isWallJumping = true;
++                    player.wallJumpTimer = player.scene.time.now;
++                    player.isMantling = 0;
++                    player.stateLockout = player.scene.time.now + 25;
++
++                    if (right) {
++                        player.setVelocity(-350, Phaser.Math.Clamp(-height, -680, -player.wallJumpRightMin));
++                        player.flipX = true;
++                        player.bufferRightWallJump = 0;
++                        player.wallRunRight /= 2;
++                        player.wallJumpRightMin = 100;
++                        player.dir = -1;
++                    }
++                    if (left) {
++                        player.setVelocity(350, Phaser.Math.Clamp(-height, -680, -player.wallJumpLeftMin));
++                        player.flipX = false;
++                        player.bufferLeftWallJump = 0;
++                        player.wallRunLeft /= 2;
++                        player.wallJumpLeftMin = 100;
++                        player.dir = 1;
++                    }
++                },
++                update: () => { },
++                exit: () => {
++                    player.wallSlide = false;
++                },
++            },
++
++            crouch: {
++                enter: (input) => {
++                    const { left, right } = input;
++                    player.isCrouch = true;
++                    player.hitBoxSize = { y: 180, yo: 70 };
++                    player.setSize(115, 180);
++                    player.setOffset(70, 70);
++
++                    if (player.body.blocked.down && (!left && !right)) {
++                        player.slidePower = 100;
++                    }
++
++                    player.stop();
++                    player.setFrame(6);
++                },
++                update: (delta, input) => {
++                    const { left, right, crouch } = input;
++                    const dir = (left ? -1 : right ? 1 : 0) * (player.speed / 2);
++                    if ((left && !right && (player.body.velocity.x > -250)) || (!left && right && (player.body.velocity.x < 250))) {
++                        player.setVelocityX(player.walkLerp(delta, dir, .1));
++                    } else {
++                        player.setVelocityX(player.walkLerp(delta, 0, .02));
++                    }
++
++                    if (player.body.blocked.down) {
++                        player.resetJump();
++                        player.isSlamming = 0;
++
++                        if ((left || right) && player.slidePower > 100) {
++                            player.setState('slide');
++                            return;
++                        }
++                    }
++                },
++                exit: () => {
++                },
++            },
++
++            slam: {
++                enter: (input) => {
++                    player.isSlamming = player.scene.time.now;
++                    const { left, right } = input;
++                    const move = (left ? -1 : right ? 1 : 0) * (player.speed);
++                    player.slamCD = 800;
++                    player.setVelocity(move * 1.125, Math.max(350, player.body.velocity.y));
++                },
++                update: () => { },
++                exit: () => { },
++            },
++
++            slide: {
++                enter: () => {
++                    const currentSpeed = Math.abs(player.body.velocity.x);
++                    const speed = currentSpeed > player.slidePower ? currentSpeed * player.dir : player.slidePower * player.dir;
++                    player.slidePower = 0;
++
++                    player.isSliding = true;
++                    player.canSlide = false;
++                    player.setVelocityX(speed);
++
++                    player.slideTime = player.scene.time.now + 500;
++                    player.stateLockout = player.slideTime;
++
++                    player.stop();
++                    player.setFrame(9);
++                },
++                update: (delta, input) => {
++                    if (Math.abs(player.body.velocity.x) < 150) {
++                        player.stateLockout = 0;
++                        player.setState('crouch', input);
++                        return;
++                    }
++
++                    if (!input.crouch) {
++                        player.stateLockout = 0;
++                        player.setState('idle');
++                        return;
++                    }
++
++                    if (input.jump && player.canJump && player.body.blocked.down) {
++                        player.stateLockout = 0;
++                        player.setState('jump', input);
++                        return;
++                    }
++
++                    if (player.slideTime <= player.scene.time.now && input.crouch) {
++                        player.stateLockout = 0;
++                        player.setState('crouch', input);
++                        return;
++                    }
++
++
++                    if (input.dash && player.canDash) {
++                        player.stateLockout = 0;
++                        player.setState('dash', input);
++                        return;
++                    }
++                },
++                exit: () => {
++                    player.isSliding = false;
++                },
++            },
++
++            jump: {
++                enter: (input) => {
++                    player.isJumping = true;
++                    player.reachApex = false;
++                    player.jumpPower = 200;
++                    player.jumpMax = 425;
++                    player.isSlamming = 0;
++                    player.setVelocityY(-player.jumpPower);
++                    player.tryUncrouch();
++
++                    player.stop();
++                    player.setFrame(5);
++                },
++                update: (delta, input) => {
++                    const { left, right, jump } = input;
++                    const move = (left ? -1 : right ? 1 : 0) * player.speed;
++                    player.setVelocityY(-player.jumpPower);
++                    player.setVelocityX(player.walkLerp(delta, move, .2))
++                    player.jumpPower += delta * 1.5;
++
++                    if (player.jumpPower >= player.jumpMax) {
++                        player.canJump = false;
++                    }
++                },
++                exit: () => {
++                    player.isJumping = false;
++                    player.canJump = false;
++                },
++            },
++
++            dash: {
++                enter: () => {
++                    player.stateLockout = player.scene.time.now + player.dashDuration;
++
++                    player.canDash = false;
++                    player.canResetDash = false;
++                    player.isDashing = true;
++                    player.iFrame = true;
++                    player.body.setAllowGravity(false);
++                    player.tryUncrouch();
++                    player.wallRunLeft = 540;
++                    player.wallRunRight = 540;
++
++                    player.dashTime = 0;
++                    player.startDash = player.dashSpeed * player.dir;
++                    player.endDash = player.startDash / 3;
++
++                    player.thisDashCooldownTimer = player.scene.time.addEvent({
++                        delay: 650,
++                        callback: () => {
++                            player.canResetDash = true;
++                            if (player.queResetDash) player.resetDash();
++                        }
++                    });
++                    player.clearTint();
++                },
++                update: (delta, input) => {
++                    player.dashTime += delta;
++
++                    const t = Phaser.Math.Clamp((player.dashTime) / player.dashDuration, 0, 1);
++                    const currentSpeed = lerp(player.startDash, player.endDash, t)
++                    if (isNaN(currentSpeed)) {
++
++                        player.setVelocityX(0);
++                    } else {
++                        player.setVelocityX(currentSpeed);
++                        player.setVelocityY(0);
++                    }
++
++                    if (player.body.blocked.left || player.body.blocked.right) {
++                        player.stateLockout = 0;
++                        if (input.jump) {
++                            player.body.blocked.left ? player.wallRunLeft = 540 : player.wallRunRight = 540;
++                            player.setState('wallRun', input);
++                        } else {
++                            player.setState('idle');
++                        }
++                    }
++                    if (input.crouch && !player.slamCD) {
++                        player.stateLockout = 0;
++                        player.setState('slam', input);
++                    }
++                },
++                exit: () => {
++                    player.body.setAllowGravity(true);
++                    player.isDashing = false;
++                    player.iFrame = false;
++                },
++            },
++
++            grapple: {
++                enter: (hitLocation) => {
++                    player.isGrappling = true;
++
++                    const dx = player.x - hitLocation.x;
++                    const dy = player.y - hitLocation.y;
++                    const dist = Math.sqrt(dx * dx + dy * dy);
++                    const tangX = -dy / dist;
++                    const tangY = dx / dist;
++                    const tangVel = (player.body.velocity.x * tangX) + (player.body.velocity.y * tangY);
++                    const angle = Math.atan2(dy, dx);
++                },
++                update: () => { },
++                exit: () => {
++                    player.isGrappling = false;
++                },
++            },
++
++            heal: {
++                enter: () => {
++                    player.isHealing = true;
++                    player.setMaxVelocity(135, 135);
++                    player.tryUncrouch();
++                },
++                update: (delta, input) => {
++                    const { left, right } = input;
++                    const move = (left ? -1 : right ? 1 : 0) * (player.speed);
++                    player.setVelocityX(player.walkLerp(delta, move))
++                    player.healCD += delta / 250;
++
++                    if (player.healCD >= 1) {
++                        if (player.health >= player.healthMax) return;
++                        player.healCD = 0;
++                        player.updateHealth(1);
++                        player.updateMoney(-1);
++                    }
++                },
++                exit: () => {
++                    player.isHealing = false;
++                    player.setMaxVelocity(1500, 1500);
++                },
++            },
++        }
++}
+diff --git a/src/things/playerStuff/states.js b/src/things/playerStuff/states.js
+deleted file mode 100644
+index 73f9624..0000000
+--- a/src/things/playerStuff/states.js
++++ /dev/null
+@@ -1,12 +0,0 @@
+-export default class States {
+-    constructor(scene, player) {
+-        this.scene = scene;
+-        this.player = player;
+-    }
+-
+-    onEnter() {}
+-
+-    onUpdate() {}
+-
+-    onExit() {}
+-}
+\ No newline at end of file
+diff --git a/src/things/shop.js b/src/things/shop.js
+index 9ad4566..53478f3 100644
+--- a/src/things/shop.js
++++ b/src/things/shop.js
+@@ -92,7 +92,6 @@ export default class Shop extends Phaser.GameObjects.Container {
+     }
+ 
+     interact(player) {
+-        console.log('interact with shop');
+         if (player.getMoney() < this.gambleCost) {
+             //this.scene.showMessage('You need 100 source.');
+             return;
+diff --git a/src/things/soundUtils.js b/src/things/soundUtils.js
+index d7cfe5d..b5a6500 100644
+--- a/src/things/soundUtils.js
++++ b/src/things/soundUtils.js
+@@ -57,7 +57,7 @@ export default class SoundUtil {
+ 
+ 
+ 
+-export function playHitSound(scene, soundKey, options = {}) {
++function playPooledSound(scene, soundKey, options = {}) {
+     if (document.visibilityState !== 'visible') return;
+ 
+     const now = scene.time.now;
+@@ -84,29 +84,10 @@ export function playHitSound(scene, soundKey, options = {}) {
+     }
+ }
+ 
+-export function playSound(scene, soundKey, options = {}) {
+-    if (document.visibilityState !== 'visible') return;
+-
+-    const now = scene.time.now;
+-    const lastTime = lastPlayTimes[soundKey] || 0;
+-
+-    if (now - lastTime > (options.cooldown || MIN_INTERVAL)) {
+-        lastPlayTimes[soundKey] = now;
+-
+-        if (!sfxPool[soundKey]) {
+-            sfxPool[soundKey] = [];
+-            for (let i = 0; i < (options.poolSize || 6); i++) {
+-                sfxPool[soundKey].push(scene.sound.add(soundKey));
+-            }
+-        }
+-
+-        const pool = sfxPool[soundKey];
+-        const sound = pool.find(s => !s.isPlaying) || pool[0]; // grab idle sound or first one
++export function playHitSound(scene, soundKey, options = {}) {
++    playPooledSound(scene, soundKey, options);
++}
+ 
+-        sound.play({
+-            volume: options.volume ?? 1,
+-            detune: options.detune ?? Phaser.Math.Between(-55, 55),
+-            rate: options.rate ?? 1
+-        });
+-    }
++export function playSound(scene, soundKey, options = {}) {
++    playPooledSound(scene, soundKey, options);
+ }
+diff --git a/src/weapons/laserSprite.js b/src/weapons/laserSprite.js
+index d0ab4d8..d80f748 100644
+--- a/src/weapons/laserSprite.js
++++ b/src/weapons/laserSprite.js
+@@ -70,7 +70,6 @@ boxTrace() {
+     const didHit = Phaser.Geom.Intersects.LineToRectangle(ray, playerBounds);
+     if (didHit) {
+         this.player.hitLaser(closestPoint); // Or maybe use `this.player.x/y`
+-        console.log('HIT', closestPoint);
+ 
+         // Debug
+         // const gfx = this.scene.add.graphics();
+@@ -96,7 +95,6 @@ boxTrace() {
+             loop: true,
+             callback: () => {
+                 if (this.active) {
+-                    console.log('deactivate')
+                     this.deactivate();
+                     this.flickerTimer.delay = offTime;
+                 } else {
