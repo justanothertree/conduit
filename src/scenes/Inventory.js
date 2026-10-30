@@ -7,9 +7,26 @@ export default class Inventory extends Phaser.Scene {
         this.player = null;
     }
     init(data) {
+        // init runs on every level load (setupPlayer re-calls it manually
+        // when Inventory is already active), but create() runs only once —
+        // so a moneyChanged listener wired up in create() would stay
+        // attached to the first level's discarded player, and the damage
+        // scaling value would stop updating after the first level change.
+        // Subscribe here instead, replacing (not stacking) the handler on
+        // each new player. The guard covers launch order: Phaser calls init
+        // before create, so damageScalingValue doesn't exist yet on the
+        // first pass.
+        if (this.player && this._moneyChangedHandler) {
+            this.player.off('moneyChanged', this._moneyChangedHandler);
+        }
         this.player = data.player;
         this.player.inventory = this
         this.aura = this.player.aura;
+        this._moneyChangedHandler = () => {
+            if (!this.damageScalingValue) return;
+            this.damageScalingValue.text = this.player.leftWeapon.damageScaling().toFixed(2);
+        };
+        this.player.on('moneyChanged', this._moneyChangedHandler);
     }
 
     create() {
@@ -54,11 +71,6 @@ export default class Inventory extends Phaser.Scene {
             color: '#ff4444', // red number
         }).setOrigin(0, 0.5); // anchor left side so it sits right after the label
 
-        this.player.on('moneyChanged', () => {
-            this.damageScalingValue.text = this.player.leftWeapon.damageScaling().toFixed(2);
-        })
-
-
         this.auraText2 = this.add.text(1200, 600, '<-Choose->', {
             fontSize: '12px',
             fontStyle: 'bold',
@@ -87,6 +99,21 @@ export default class Inventory extends Phaser.Scene {
         }).setOrigin(.5, 1).setAlpha(0).setDepth(12);
 
         this.setupTalents();
+
+        // Phone-sized viewports: this panel is laid out around x=1200
+        // (roughly 800–1600 wide, content y≈25–800), so on a phone the
+        // whole panel sits off-screen to the right — tapping INVENTORY
+        // in the Esc menu toggles a panel nobody can see, which reads
+        // as "the button does nothing". When the viewport can't fit the
+        // panel, zoom out to fit it and centre the camera on it; large
+        // screens keep zoom 1 and the previous layout exactly.
+        const cam = this.cameras.main;
+        const fitZoom = Math.min(1, cam.width / 850, cam.height / 950);
+        if (fitZoom < 1) {
+            cam.setZoom(fitZoom);
+            cam.scrollX = 1200 - (cam.width / 2) / fitZoom;
+            cam.scrollY = 400 - (cam.height / 2) / fitZoom;
+        }
     }
 
     setupWeaponButton(x = 1200, y = 200, weapon = 'darkorb', icon = 'darkorb', scale = 1) {

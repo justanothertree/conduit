@@ -34,7 +34,11 @@ export default class EscMenu extends Phaser.Scene {
             .setInteractive()
             .on('pointerdown', () => {
                 GameManager.reset();
-                this.game.scene.start('Home')
+                // Same transition fix as the HOME menu entry: close the menu
+                // and stop the level via its own scene plugin, instead of
+                // SceneManager.start leaving the old level running.
+                closeMenu();
+                this.gameScene.scene.start('Home');
             });
         const resetText = this.add.text(0, 0, 'RESET', {
             font: '32px',
@@ -120,6 +124,26 @@ export default class EscMenu extends Phaser.Scene {
             if(getChatting()) return;
             toggleSettings();
         })
+        // Close-only variant of toggleSettings: after a level restart
+        // (Respawn restarts the level scene, which re-runs this create
+        // and resets visible to false), toggling here would reopen the
+        // menu instead of closing it. Closing unconditionally is safe
+        // in both cases.
+        const closeMenu = () => {
+            if (!this.visible) return;
+            this.visible = false;
+            this.scene.resume(this.gameScene);
+            this.input.enabled = false;
+            this.scene.setVisible(false);
+            this.destroyNameInput();
+            this.destroyColorInput();
+        };
+
+        // The gear is re-created on every EscMenu launch, and a level
+        // restart re-launches it — remove the previous gear first, or
+        // stale gears pile up in the grid (same replace-not-stack rule
+        // as the voice/debug buttons).
+        document.querySelector('.kb-button[data-action="SettingsButton"]')?.remove();
         addSettingsButton(toggleSettings)
 
         // Menu entries for the three actions with no phone button
@@ -149,7 +173,7 @@ export default class EscMenu extends Phaser.Scene {
                 inv.scene.setActive(true);
                 inv.input.enabled = true;
             }
-            toggleSettings();
+            closeMenu();
         });
 
         menuAction('HOME', 370, () => {
@@ -157,7 +181,13 @@ export default class EscMenu extends Phaser.Scene {
             if (player && ((this.gameScene.scene.key !== 'Home' && player.body.blocked.down && !player.chatting) || !player.alive)) {
                 GameManager.useLastLocation = false;
                 GameManager.save();
-                this.game.scene.start('Home');
+                // Close the menu first (it would otherwise stay open over
+                // Home), then go through the level's own scene plugin so the
+                // level is stopped — exactly like the desktop T key.
+                // SceneManager.start would leave the old level running
+                // behind Home with the menu still on top.
+                closeMenu();
+                this.gameScene.scene.start('Home');
             }
         });
 
@@ -165,7 +195,7 @@ export default class EscMenu extends Phaser.Scene {
             const player = this.gameScene.player;
             if (player && ((player.body.blocked.down && !player.chatting) || !player.alive)) {
                 player.respawnPlayer();
-                toggleSettings();
+                closeMenu();
             }
         });
 

@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Conduit</title>
   <meta name="robots" content="index, follow">
   <meta name="description" content="Conduit is a fast-paced indie 2D platformer with deep movement mechanics, 
@@ -153,6 +153,32 @@
       .card {
         width: 72px;
         height: 105px;
+      }
+
+      /* The toolbar hint text crowds the two buttons off a narrow screen,
+         and the buttons are small tap targets — shrink the text, grow the
+         buttons. */
+      #iconToolbar-text {
+        font-size: 0.75rem;
+      }
+
+      #clear-cards-btn,
+      #sortCards-btn {
+        padding: 0.6rem 0.9rem;
+      }
+    }
+
+    /* Phones: the card grid below the game must never stretch past the
+       screen — cap its height and scroll inside it instead of growing the
+       page. The scrollbar stays hidden, matching the desktop look;
+       overscroll-behavior keeps page scroll from fighting the grid. */
+    @media (max-width: 760px) {
+      #icon-grid {
+        max-height: 40vh;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
       }
     }
 

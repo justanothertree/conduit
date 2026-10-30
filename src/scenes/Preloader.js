@@ -15,7 +15,6 @@ export default class Preloader extends Phaser.Scene {
             this.loadingLogo();
         });
 
-        //this.loadingBar();
 
         this.load.image('redsky0', 'assets/RedSky0.webp');
         this.load.image('redsky1', 'assets/RedSky1.webp');
@@ -178,41 +177,6 @@ export default class Preloader extends Phaser.Scene {
         document.settingsButton = addButton('KeyUnpressed', 'Escape', 'Settings', 1, 9, '65px', 'Esc');
 
         this.scene.start(GameManager.area);
-    }
-
-    loadingBar() {
-        // Create a progress bar background
-        const { width, height } = this.cameras.main;
-        const barWidth = 300;
-        const barHeight = 30;
-        const barX = (width - barWidth) / 2;
-        const barY = (height - barHeight) / 2;
-
-        this.anims.create({
-            key: 'loading',
-            frames: this.anims.generateFrameNames('conduitLogo', { start: 0, end: 22 })
-        })
-
-        const logo = this.add.image(width / 2, height / 2, 'conduitLogo', 0);
-
-        const progressBarBg = this.add.graphics();
-        progressBarBg.fillStyle(0x222222, 1);
-        progressBarBg.fillRect(barX, barY, barWidth, barHeight);
-
-        const progressBar = this.add.graphics();
-
-        // Optional: Add text
-        const loadingText = this.add.text(width / 2, barY - 40, 'Loading...', {
-            fontSize: '20px',
-            fill: '#ffffff'
-        }).setOrigin(0.5);
-
-        // Listen to loading progress
-        this.load.on('progress', (value) => {
-            progressBar.clear();
-            progressBar.fillStyle(0xffffff, 1);
-            progressBar.fillRect(barX, barY, barWidth * value, barHeight);
-        });
     }
 
     loadingLogo() {

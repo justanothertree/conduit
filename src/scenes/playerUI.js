@@ -9,18 +9,32 @@ export default class PlayerUI extends Phaser.Scene {
         this.gameScene = null;
     }
     init(data) {
+        // init runs on every level load (setupPlayer re-calls it manually
+        // when PlayerUI is already active), so each call hands this scene a
+        // fresh player — but the previous player's handlers were never
+        // detached, leaving orphaned listeners on every discarded player.
+        // Replace (not stack), same convention as Inventory's Day 23 fix:
+        // detach from the old player first, then subscribe to the new one.
+        if (this.player && this._healthHandler) {
+            this.player.off('updateHealth', this._healthHandler);
+        }
+        if (this.player && this._moneyHandler) {
+            this.player.off('moneyChanged', this._moneyHandler);
+        }
         this.player = data.player;
         this.gameScene = data.gameScene;
         this.player.playerUI = this;
 
         this.healthBoxUpdate(this.player.health, this.player.healthMax);
-        this.player.on('updateHealth', (health, max) => {
+        this._healthHandler = (health, max) => {
             this.healthBoxUpdate(health, max)
-        });
-        this.player.on('moneyChanged', (v) => {
+        };
+        this._moneyHandler = (v) => {
             const money = GameManager.power.money
             this.scoreText.text = 'Source: ' + (money) + '\n' + getRank(money);
-        })
+        };
+        this.player.on('updateHealth', this._healthHandler);
+        this.player.on('moneyChanged', this._moneyHandler);
     }
 
     create() {

@@ -18,11 +18,14 @@ const gridMouseUp = (e) => {
     e.stopPropagation();
     e.preventDefault();
 };
-// Touch mirrors of the mouse handlers above: keep touches on the grid
+// Touch mirror of the mouse handler above: keep touches on the grid
 // from reaching the game canvas, and release keyboard control.
+// Note: no preventDefault() here. On narrow screens #icon-grid scrolls
+// internally (see index.html), and blocking the default would make that
+// scroll unreachable by touch. Card taps/holds are unaffected — each
+// card's own touchstart already preventDefaults.
 const gridTouchStart = (e) => {
     e.stopPropagation();
-    e.preventDefault();
     document.getElementById('chatInput')?.blur();
 };
 const gridTouchEnd = (e) => {
@@ -48,7 +51,6 @@ export function setupIconGrid(containerId, icons, onClickHandler) {
 
     container.innerHTML = ''; // clear existing content
 
-    //const iconsReverse = [...icons].reverse(); // Reverse the icons array
     icons.forEach(icon => {
         addCard(icon, onClickHandler)
     });
@@ -122,15 +124,6 @@ export function addCard(icon, onClickHandler) {
         e.preventDefault(); // necessary to allow dropping
         e.dataTransfer.dropEffect = 'move';
     });
-
-    // wrapper.addEventListener('drop', (e) => {
-    //     e.preventDefault();
-    //     console.log('card', draggedCard, 'wrapper', wrapper, wrapper.parentNode);
-    //     if (draggedCard && draggedCard !== wrapper) {
-    //         const parent = wrapper.parentNode;
-    //         parent.insertBefore(draggedCard, wrapper);
-    //     }
-    // });
 
 
     wrapper.onmousedown = (e) => {

@@ -38,6 +38,10 @@ export default class ChatBubble extends Phaser.GameObjects.Container {
         clearTimeout(this.oldChatTimer);
         const removeOldChat = () => {
             if(!this.message.shift()) return;
+            // Expiry dropped a message from the list but never repainted it,
+            // so expired messages stayed visible until the whole bubble
+            // faded out 15s after the last message. Repaint on expiry.
+            this.text?.setText(this.message);
         this.oldChatTimer = setTimeout(() => removeOldChat(), 5000);
         }
         this.oldChatTimer = setTimeout(() => removeOldChat(), 5000);
