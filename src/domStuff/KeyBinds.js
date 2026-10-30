@@ -8,6 +8,7 @@ export function setupKeybindWindow() {
 
     kbGrid = document.createElement('div');
     kbGrid.className = 'kb-grid';
+    kbGrid.id = 'keyboard-grid'; // targeted by the safe-area rule in index.html
 
     kbGrid.addEventListener('mousedown', (e) => {
         e.stopPropagation();

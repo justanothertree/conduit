@@ -8,14 +8,14 @@ export default class Inventory extends Phaser.Scene {
     }
     init(data) {
         // init runs on every level load (setupPlayer re-calls it manually
-        // when Inventory is already active), but create() runs only once —
-        // so a moneyChanged listener wired up in create() would stay
-        // attached to the first level's discarded player, and the damage
-        // scaling value would stop updating after the first level change.
-        // Subscribe here instead, replacing (not stacking) the handler on
-        // each new player. The guard covers launch order: Phaser calls init
-        // before create, so damageScalingValue doesn't exist yet on the
-        // first pass.
+        // when Inventory is already active), but create() only runs when
+        // the scene (re)launches — so a moneyChanged listener wired up in
+        // create() would stay attached to the first level's discarded
+        // player, and the damage scaling value would stop updating after
+        // the first level change. Subscribe here instead, replacing (not
+        // stacking) the handler on each new player. The guard covers
+        // launch order: Phaser calls init before create, so
+        // damageScalingValue doesn't exist yet on the first pass.
         if (this.player && this._moneyChangedHandler) {
             this.player.off('moneyChanged', this._moneyChangedHandler);
         }
@@ -104,16 +104,30 @@ export default class Inventory extends Phaser.Scene {
         // (roughly 800–1600 wide, content y≈25–800), so on a phone the
         // whole panel sits off-screen to the right — tapping INVENTORY
         // in the Esc menu toggles a panel nobody can see, which reads
-        // as "the button does nothing". When the viewport can't fit the
-        // panel, zoom out to fit it and centre the camera on it; large
+        // as "the button does nothing". fitCamera() zooms out to fit the
+        // panel and centres on it when the viewport is too small; large
         // screens keep zoom 1 and the previous layout exactly.
+        this.fitCamera();
+        // The game uses Phaser.Scale.RESIZE, so re-fit whenever the
+        // viewport changes. Replace (not stack) the listener — create()
+        // can re-run when the scene relaunches — and drop it on shutdown.
+        this.scale.off('resize', this.fitCamera, this);
+        this.scale.on('resize', this.fitCamera, this);
+        this.events.once('shutdown', () => this.scale.off('resize', this.fitCamera, this));
+    }
+
+    fitCamera() {
         const cam = this.cameras.main;
         const fitZoom = Math.min(1, cam.width / 850, cam.height / 950);
-        if (fitZoom < 1) {
-            cam.setZoom(fitZoom);
-            cam.scrollX = 1200 - (cam.width / 2) / fitZoom;
-            cam.scrollY = 400 - (cam.height / 2) / fitZoom;
+        if (fitZoom >= 1) {
+            cam.setZoom(1);
+            cam.scrollX = 0;
+            cam.scrollY = 0;
+            return;
         }
+        cam.setZoom(fitZoom);
+        cam.scrollX = 1200 - (cam.width / 2) / fitZoom;
+        cam.scrollY = 400 - (cam.height / 2) / fitZoom;
     }
 
     setupWeaponButton(x = 1200, y = 200, weapon = 'darkorb', icon = 'darkorb', scale = 1) {

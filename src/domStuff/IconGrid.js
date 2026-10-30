@@ -20,10 +20,12 @@ const gridMouseUp = (e) => {
 };
 // Touch mirror of the mouse handler above: keep touches on the grid
 // from reaching the game canvas, and release keyboard control.
-// Note: no preventDefault() here. On narrow screens #icon-grid scrolls
-// internally (see index.html), and blocking the default would make that
-// scroll unreachable by touch. Card taps/holds are unaffected — each
-// card's own touchstart already preventDefaults.
+// Note: no preventDefault() here — and none on the cards' touchstart
+// either. On narrow screens #icon-grid scrolls internally (see
+// index.html), and blocking the default would make that scroll
+// unreachable by touch. Taps and holds still work: each card tracks its
+// own gesture, and its touchend swallows the event, so a tap never
+// double-fires through the synthesized mouse path.
 const gridTouchStart = (e) => {
     e.stopPropagation();
     document.getElementById('chatInput')?.blur();
@@ -76,8 +78,11 @@ export function addCard(icon, onClickHandler) {
     let justUnlocked = false;
 
     // Touch tracking mirrors the mouse hold/tap logic below. touchstart
-    // preventDefault() suppresses the browser's synthesized mouse events,
-    // so a tap never double-fires through both paths.
+    // must NOT preventDefault() — that would block grid scrolling for
+    // swipes starting on a card (see index.html). Instead endTouch
+    // preventDefaults, so a tap never double-fires through the
+    // synthesized mouse events, and a drag can't leak into mousedown /
+    // mouseup and eat a card.
     let touchActive = false;
     let touchStartX = 0;
     let touchStartY = 0;
@@ -145,14 +150,16 @@ export function addCard(icon, onClickHandler) {
     // same as mouse. Sliding the finger off cancels the hold.
     wrapper.addEventListener('touchstart', (e) => {
         e.stopPropagation();
-        e.preventDefault(); // no synthetic mouse events, no scroll/zoom gestures
+        // No preventDefault(): swipes starting on a card must be able to
+        // scroll the grid. touch-action: manipulation on .card (see
+        // index.html) already kills tap delay and double-tap zoom.
         if (e.touches.length !== 1) return; // ignore multi-touch
         touchActive = true;
         const t = e.touches[0];
         touchStartX = t.clientX;
         touchStartY = t.clientY;
         holdTimer = setTimeout(toggleLock, 800);
-    }, { passive: false });
+    });
 
     wrapper.addEventListener('touchmove', (e) => {
         if (!touchActive) return;
@@ -164,10 +171,16 @@ export function addCard(icon, onClickHandler) {
     }, { passive: true });
 
     const endTouch = (e) => {
+        e.stopPropagation();
+        // Always swallow the touchend. Without the touchstart
+        // preventDefault, a drag that ends without scrolling would
+        // otherwise synthesize mousedown/mouseup, and the mouseup handler
+        // would consume the card.
+        e.preventDefault();
+        // Only a clean tap consumes: if the finger moved past the slop
+        // (or it was multi-touch), touchActive is already false.
         if (!touchActive) return;
         touchActive = false;
-        e.stopPropagation();
-        e.preventDefault();
         clearTimeout(holdTimer);
         consumeCard();
     };

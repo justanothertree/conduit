@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Conduit</title>
   <meta name="robots" content="index, follow">
   <meta name="description" content="Conduit is a fast-paced indie 2D platformer with deep movement mechanics, 
@@ -80,6 +80,13 @@
       background-color: black;
       height: max-content;
       z-index: 2;
+      /* viewport-fit=cover renders under the notch and home bar — keep
+         the card controls clear of them. env() is 0 where there is no
+         safe area, so this is a no-op on other devices. */
+      padding-top: env(safe-area-inset-top);
+      padding-right: env(safe-area-inset-right);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
     }
 
     canvas {
@@ -144,7 +151,9 @@
       -webkit-touch-callout: none; /* no iOS long-press callout */
     }
 
-    /* Smaller cards and tighter grid on phones so more fit on screen */
+    /* Smaller cards and tighter grid on phones so more fit on screen.
+       (The 480px toolbar rules live at the end of this stylesheet — they
+       must come after the base button rules to win the cascade.) */
     @media (max-width: 480px) {
       #icon-grid {
         gap: 0.75rem;
@@ -153,18 +162,6 @@
       .card {
         width: 72px;
         height: 105px;
-      }
-
-      /* The toolbar hint text crowds the two buttons off a narrow screen,
-         and the buttons are small tap targets — shrink the text, grow the
-         buttons. */
-      #iconToolbar-text {
-        font-size: 0.75rem;
-      }
-
-      #clear-cards-btn,
-      #sortCards-btn {
-        padding: 0.6rem 0.9rem;
       }
     }
 
@@ -237,6 +234,32 @@
 
     #sortCards-btn:hover {
       background-color: rgb(15, 7, 87);
+    }
+
+    /* Phones: shrink the toolbar hint text and grow the Sort/Consume tap
+       targets. This block MUST stay below the base #iconToolbar-text /
+       #clear-cards-btn / #sortCards-btn rules above — same specificity,
+       so source order decides, and the base rules would win if this
+       came first. */
+    @media (max-width: 480px) {
+      #iconToolbar-text {
+        font-size: 0.75rem;
+      }
+
+      #clear-cards-btn,
+      #sortCards-btn {
+        padding: 0.6rem 0.9rem;
+      }
+    }
+
+    /* Same safe-area treatment for the keyboard grid (id set in
+       KeyBinds.js). The left side keeps the .kb-grid 5% offset and adds
+       the inset on top of it. */
+    #keyboard-grid {
+      padding-top: env(safe-area-inset-top);
+      padding-right: env(safe-area-inset-right);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: calc(5% + env(safe-area-inset-left));
     }
   </style>
 </head>
