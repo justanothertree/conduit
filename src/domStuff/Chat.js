@@ -121,5 +121,11 @@ function addMessage(tx) {
     newMessage.className = 'chatMessage';
     newMessage.textContent = tx;
     messages.appendChild(newMessage);
+    // Bound DOM growth: a busy multiplayer session could otherwise stack
+    // chat nodes without limit. Oldest messages drop off first; the list
+    // stays scrolled to the bottom exactly as before.
+    while (messages.children.length > 100) {
+        messages.removeChild(messages.firstChild);
+    }
     messages.scrollTop = messages.scrollHeight;
 }
