@@ -27,8 +27,23 @@ export default class EscMenu extends Phaser.Scene {
 
         this.network = NetworkManager.instance;
 
+        // The menu is laid out for an 800x600 panel. Wrap everything in
+        // one container so narrow viewports (phones) get a scaled-down,
+        // centered panel instead of content hanging off-screen — the
+        // volume sliders at x=600 and the name/color inputs at x=600,350
+        // were unreachable on a phone. Desktop viewports (>=800x600) keep
+        // scale 1 at (0,0), pixel-identical to the old layout.
+        this.menuPanel = this.add.container(0, 0);
+        this.fitMenu();
+        // The game uses Phaser.Scale.RESIZE, so re-fit on viewport change.
+        // Replace (not stack), same convention as Inventory's fitCamera.
+        this.scale.off('resize', this.fitMenu, this);
+        this.scale.on('resize', this.fitMenu, this);
+        this.events.once('shutdown', () => this.scale.off('resize', this.fitMenu, this));
+
         // Background
         this.bg = this.add.rectangle(0, 0, 800, 600, 0x000000, 0.8).setOrigin(0, 0);
+        this.menuPanel.add(this.bg);
 
         this.resetButton = this.add.rectangle(0, 0, 225, 75, 0xFFFFFF, 1)
             .setInteractive()
@@ -44,15 +59,17 @@ export default class EscMenu extends Phaser.Scene {
             font: '32px',
             fill: '#FF0000',
         })
+        this.menuPanel.add(this.resetButton, resetText);
 
         // The four volume sliders share geometry; createSlider builds each one
         // (label, track, draggable handle) so the blocks don't repeat.
         const createSlider = (y, name) => {
-            this.add.text(400, y - 10, name);
+            const label = this.add.text(400, y - 10, name);
             const track = this.add.rectangle(600, y, 200, 10, 0xffffff).setOrigin(0.5);
             const handle = this.add.circle(600, y, 10, 0xff0000).setInteractive();
             this.input.setDraggable(handle);
             handle.name = name;
+            this.menuPanel.add(label, track, handle);
             return { track, handle };
         };
 
@@ -78,6 +95,7 @@ export default class EscMenu extends Phaser.Scene {
             .on('pointerout', () => {
                 donate.setColor('#FFFFFF')
             })
+        this.menuPanel.add(donate);
 
         const instructions = this.add.text(0, 50,
             'ASD - Move\nW - Heal\nSPACE - Jump\nSHIFT - dash\nL/R Click - Attack\nC -Inventory\nT - Home\n<-/-> - Spectate Others\nUpArrow^ - Spectate Self', {
@@ -85,6 +103,7 @@ export default class EscMenu extends Phaser.Scene {
             color: '#4fffff',
         });
         instructions.setScrollFactor(0);
+        this.menuPanel.add(instructions);
 
         // Name display
         this.nameDisplay = this.add.text(600, 250, GameManager.name.text || 'Hunter', {
@@ -92,6 +111,7 @@ export default class EscMenu extends Phaser.Scene {
             fontStyle: 'bold',
             color: GameManager.name.color || '#FFFFFF',
         }).setOrigin(0.5);
+        this.menuPanel.add(this.nameDisplay);
 
         // Store all UI elements for visibility toggling
         //this.uiElements.push(this.bg, this.nameDisplay, track, handle, track1, handle1, instructions, this.resetButton, resetText);
@@ -158,6 +178,7 @@ export default class EscMenu extends Phaser.Scene {
                 .on('pointerdown', onTap)
                 .on('pointerover', () => entry.setColor('#00FF00'))
                 .on('pointerout', () => entry.setColor('#FFFFFF'));
+            this.menuPanel.add(entry);
             return entry;
         };
 
@@ -234,6 +255,21 @@ export default class EscMenu extends Phaser.Scene {
         this.setInitialVolume(GameManager.volume);
     }
 
+    // Fit the 800x600 menu panel to the viewport. Desktop (>=800x600)
+    // keeps scale 1 at (0,0) — identical to the old layout — while
+    // narrow screens (phones) get the panel scaled down and centered so
+    // nothing is cut off. Phaser reports drag positions in the
+    // container's local space, so the slider drag math below is
+    // unchanged.
+    fitMenu() {
+        const s = Math.min(1, this.scale.width / 800, this.scale.height / 600);
+        this.menuPanel.setScale(s);
+        this.menuPanel.setPosition(
+            Math.max(0, (this.scale.width - 800 * s) / 2),
+            Math.max(0, (this.scale.height - 600 * s) / 2)
+        );
+    }
+
     // setUIVisible(visible) {
     //     this.uiElements.forEach(obj => obj.setVisible(visible));
     //     if (this.nameInput) this.nameInput.setVisible(visible);
@@ -257,6 +293,7 @@ export default class EscMenu extends Phaser.Scene {
             <input type="text" id="nameInput" name="name" placeholder="Enter name"
                    style="font-size: 20px; width: 200px; padding: 5px;" />
         `).setOrigin(0.5);
+        this.menuPanel.add(this.nameInput);
 
 
         const domElement = this.nameInput.getChildByName('name');
@@ -303,6 +340,7 @@ export default class EscMenu extends Phaser.Scene {
             <input type="color" id="nameColor" value="${GameManager.name.color || '#ffffff'}"
                    style="width: 80px; height: 40px; border: none;" />
         `).setOrigin(0.5);
+        this.menuPanel.add(this.colorInput);
 
         const colorPicker = this.colorInput.getChildByID('nameColor');
         colorPicker.addEventListener('input', (event) => {
