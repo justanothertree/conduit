@@ -1,4 +1,5 @@
 import { addButton, setupKeybindWindow } from "../domStuff/KeyBinds.js";
+import { isTouchDevice, setupTouchControls } from "../domStuff/TouchControls.js";
 import GameManager from "../things/GameManager.js";
 
 export default class Preloader extends Phaser.Scene {
@@ -176,6 +177,14 @@ export default class Preloader extends Phaser.Scene {
         document.homeButton = addButton('KeyUnpressed', 'KeyT', 'Home', 1, 11);
         document.respawnButton = addButton('KeyUnpressed', 'KeyR', 'Respawn', 1, 10);
         document.settingsButton = addButton('KeyUnpressed', 'Escape', 'Settings', 1, 9, '65px', 'Esc');
+
+        // Phone-first touch controls replace the keyboard key bar on touch
+        // devices; desktop keeps the kb-grid exactly as-is. Runs after the
+        // document.*Button flags exist so the touch UI can drive them.
+        if (isTouchDevice()) {
+            document.getElementById('kb-section').style.display = 'none';
+            setupTouchControls();
+        }
 
         // ?scene=LevelName jumps straight into a scene (level testing,
         // phone pass) instead of the saved area. Defaults to Home.

@@ -31,6 +31,14 @@ export default class BaseGame extends Phaser.Scene {
     this.network = new NetworkManager(this);
     this.spawnManager = new SpawnManager(this);
 
+    // The touch menu is DOM-side and needs the current game scene to reach
+    // the scenes' keyboard plugins (menu actions emit the same key events
+    // the desktop keys fire). Replace-not-stack: cleared on shutdown.
+    document.activeGameScene = this;
+    this.events.once('shutdown', () => {
+        if (document.activeGameScene === this) document.activeGameScene = null;
+    });
+
     const joinVoiceChat = () => {
       if (!this.network.voiceChat.audioContext) {
         this.network.voiceChat._initMic();

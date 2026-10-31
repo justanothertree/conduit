@@ -1,0 +1,228 @@
+/* touchControls.css — phone-first touch UI. Only built on touch devices. */
+
+#touch-controls {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    pointer-events: none;
+    --tc-scale: 1;
+    --tc-opacity: 0.75;
+    font-family: inherit;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+}
+
+#touch-controls > * {
+    pointer-events: auto;
+}
+
+/* ---------------------------------------------------------- joystick */
+#tc-joystick-zone {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 45%;
+    height: 100%;
+    touch-action: none;
+}
+
+#touch-controls.left-handed #tc-joystick-zone {
+    left: auto;
+    right: 0;
+}
+
+#tc-stick-base {
+    display: none;
+    position: absolute;
+    width: calc(120px * var(--tc-scale));
+    height: calc(120px * var(--tc-scale));
+    margin-left: calc(-60px * var(--tc-scale));
+    margin-top: calc(-60px * var(--tc-scale));
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, calc(0.5 * var(--tc-opacity)));
+    background: rgba(255, 255, 255, calc(0.12 * var(--tc-opacity)));
+    pointer-events: none;
+}
+
+#tc-stick-knob {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(54px * var(--tc-scale));
+    height: calc(54px * var(--tc-scale));
+    margin-left: calc(-27px * var(--tc-scale));
+    margin-top: calc(-27px * var(--tc-scale));
+    border-radius: 50%;
+    background: rgba(255, 255, 255, calc(0.45 * var(--tc-opacity)));
+    border: 2px solid rgba(255, 255, 255, calc(0.7 * var(--tc-opacity)));
+}
+
+/* ----------------------------------------------------- action buttons */
+#tc-actions {
+    position: absolute;
+    right: calc(12px + env(safe-area-inset-right));
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    width: calc(210px * var(--tc-scale));
+    height: calc(190px * var(--tc-scale));
+}
+
+#touch-controls.left-handed #tc-actions {
+    right: auto;
+    left: calc(12px + env(safe-area-inset-left));
+}
+
+.tc-btn {
+    position: absolute;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(20, 20, 30, calc(0.55 * var(--tc-opacity)));
+    border: 2px solid rgba(255, 255, 255, calc(0.55 * var(--tc-opacity)));
+    color: rgba(255, 255, 255, calc(0.9 * var(--tc-opacity)));
+    font-weight: bold;
+    touch-action: none;
+}
+
+.tc-btn span {
+    pointer-events: none;
+}
+
+.tc-btn.pressed {
+    background: rgba(90, 200, 255, calc(0.65 * var(--tc-opacity)));
+    border-color: #fff;
+}
+
+.tc-jump {
+    width: calc(96px * var(--tc-scale));
+    height: calc(96px * var(--tc-scale));
+    right: 0;
+    bottom: 0;
+    font-size: calc(20px * var(--tc-scale));
+}
+
+.tc-dash {
+    width: calc(78px * var(--tc-scale));
+    height: calc(78px * var(--tc-scale));
+    right: calc(104px * var(--tc-scale));
+    bottom: calc(72px * var(--tc-scale));
+    font-size: calc(16px * var(--tc-scale));
+}
+
+.tc-attack {
+    width: calc(78px * var(--tc-scale));
+    height: calc(78px * var(--tc-scale));
+    right: calc(12px * var(--tc-scale));
+    bottom: calc(104px * var(--tc-scale));
+    font-size: calc(16px * var(--tc-scale));
+    border-color: rgba(255, 120, 120, calc(0.7 * var(--tc-opacity)));
+}
+
+/* ------------------------------------------------------- pause + menu */
+#tc-pause {
+    position: absolute;
+    top: calc(10px + env(safe-area-inset-top));
+    right: calc(12px + env(safe-area-inset-right));
+    width: calc(48px * var(--tc-scale));
+    height: calc(48px * var(--tc-scale));
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(20, 20, 30, calc(0.55 * var(--tc-opacity)));
+    border: 2px solid rgba(255, 255, 255, calc(0.55 * var(--tc-opacity)));
+    color: rgba(255, 255, 255, calc(0.9 * var(--tc-opacity)));
+    font-weight: bold;
+    font-size: calc(18px * var(--tc-scale));
+    touch-action: none;
+}
+
+#touch-controls.left-handed #tc-pause {
+    right: auto;
+    left: calc(12px + env(safe-area-inset-left));
+}
+
+#tc-pause span {
+    pointer-events: none;
+}
+
+#tc-pause.active {
+    background: rgba(90, 200, 255, 0.65);
+}
+
+#tc-menu {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: min(240px, 60vw);
+    height: 100%;
+    padding:
+        calc(12px + env(safe-area-inset-top))
+        calc(12px + env(safe-area-inset-right))
+        calc(12px + env(safe-area-inset-bottom))
+        12px;
+    box-sizing: border-box;
+    background: rgba(10, 10, 18, 0.92);
+    border-left: 1px solid rgba(255, 255, 255, 0.2);
+    transform: translateX(105%);
+    transition: transform 0.18s ease-out;
+    overflow-y: auto;
+    touch-action: pan-y;
+}
+
+#touch-controls.left-handed #tc-menu {
+    right: auto;
+    left: 0;
+    border-left: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.2);
+    transform: translateX(-105%);
+    padding-left: calc(12px + env(safe-area-inset-left));
+    padding-right: 12px;
+}
+
+#tc-menu.open {
+    transform: translateX(0);
+}
+
+.tc-menu-title {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 12px;
+    letter-spacing: 2px;
+    margin: 8px 4px 6px;
+}
+
+.tc-menu-btn {
+    padding: 12px 14px;
+    margin: 6px 0;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
+    font-size: 16px;
+    touch-action: none;
+}
+
+.tc-menu-btn.pressed {
+    background: rgba(90, 200, 255, 0.35);
+}
+
+.tc-setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 4px;
+    color: #fff;
+    font-size: 15px;
+}
+
+.tc-setting-row input[type="range"] {
+    width: 120px;
+    touch-action: auto;
+}
+
+.tc-setting-row input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+}

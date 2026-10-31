@@ -5,6 +5,7 @@ import ChatBubble from "./chatBubble.js";
 import PlayerContainer from "./playerContainer.js";
 import SoundUtil, { playSound } from "./soundUtils.js";
 import { getChatting } from "../domStuff/Chat.js";
+import { getTouchAimPointer } from "../domStuff/touchAim.js";
 import { setupPlayerStates } from "./playerStuff/playerStates.js";
 import { playerTakeDamage, playerAdjustHealth, playerUpdateHealth } from "./playerStuff/playerHealth.js";
 import { playerSyncGhost, playerSyncNetwork, playerSpectatePlayer } from "./playerStuff/playerNetwork.js";
@@ -209,6 +210,14 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             }
             if (pointer.rightButtonDown() && !this.inventory.scene.isVisible()) {
                 this.rightWeapon.fire(pointer);
+                this.meditateTimer = 0;
+            }
+            // Touch Attack button: fires the primary weapon at the auto-aim
+            // point (nearest enemy, else facing direction). Desktop mouse
+            // path above is unchanged; this only maps touch input onto the
+            // existing fire action.
+            if (document.attackButton?.isClicked && !this.inventory.scene.isVisible()) {
+                this.leftWeapon.fire(getTouchAimPointer(this));
                 this.meditateTimer = 0;
             }
         }
