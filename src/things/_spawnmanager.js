@@ -11,6 +11,8 @@ import Portal from "./portal.js";
 import FinishLine from "./finishLine.js";
 import LaserSprite from "../weapons/laserSprite.js";
 import CardPickup from "./cardPickup.js";
+import Shard from "./shard.js";
+import GameManager from "./GameManager.js";
 
 export default class SpawnManager {
     static instance;
@@ -111,6 +113,24 @@ export default class SpawnManager {
         return duck;
     }
 
+    // Flowline mini-boss: a big, angry duck. Same Duck underneath (no new
+    // enemy systems), just more health and presence. Unlike regular ducks
+    // it does not respawn — it's a per-run set piece guarding the arena.
+    spawnMiniBoss(x, y, obj) {
+        const props = getProperty(obj);
+        const health = props?.health ?? 150;
+        let duck = this.duckGroup.get(x, y);
+        if (duck) {
+            if (!duck.activate(x, y, health)) {
+                duck = this.duckGroup.create();
+                duck.activate(x, y, health);
+            }
+            duck.setScale(.5);
+            duck.setTint(0xff5555);
+        }
+        return duck;
+    }
+
     spawnCoin(x, y, obj) {
         const coin = new Coin(this.scene, x, y);
         const props = getProperty(obj);
@@ -136,6 +156,18 @@ export default class SpawnManager {
         })
 
         return coin;
+    }
+
+    // Flowline shard pickup. Already-found shards never re-spawn — the
+    // id check against GameManager.collectedItems keeps them found
+    // across runs (the save system persists that array).
+    spawnShard(x, y, obj) {
+        const props = getProperty(obj);
+        const id = props?.id ?? `flow-${Math.round(x)}-${Math.round(y)}`;
+        if (GameManager.collectedItems.includes(id)) return null;
+        const shard = new Shard(this.scene, x, y, obj);
+        this.itemGroup.add(shard);
+        return shard;
     }
 
     spawnSourceBlock(x, y, data) {

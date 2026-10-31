@@ -120,6 +120,14 @@ export default class Home extends BaseGame {
                 tint: 0x00FF00,
                 targetScene: 'LevelYaya1',
             },
+            // Flowline — movement showcase level
+            portalFlow: {
+                x: 2500,
+                y: 1500,
+                tex: 'portal3',
+                tint: 0x7CFC00,
+                targetScene: 'LevelFlow',
+            },
         }
 
         Object.entries(this.portalData).forEach(([key, data]) => {

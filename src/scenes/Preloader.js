@@ -99,6 +99,7 @@ export default class Preloader extends Phaser.Scene {
         this.load.tilemapTiledJSON('tilemap7', 'assets/tilemap7.json');
         this.load.tilemapTiledJSON('tilemap8', 'assets/tilemap8.json');
         this.load.tilemapTiledJSON('tilemapYaya1', 'assets/tilemapYaya1.json');
+        this.load.tilemapTiledJSON('tilemapFlow', 'assets/tilemapFlow.json');
 
 
         this.load.spritesheet('devilMan', 'assets/DevilMan.png', {
@@ -176,7 +177,10 @@ export default class Preloader extends Phaser.Scene {
         document.respawnButton = addButton('KeyUnpressed', 'KeyR', 'Respawn', 1, 10);
         document.settingsButton = addButton('KeyUnpressed', 'Escape', 'Settings', 1, 9, '65px', 'Esc');
 
-        this.scene.start(GameManager.area);
+        // ?scene=LevelName jumps straight into a scene (level testing,
+        // phone pass) instead of the saved area. Defaults to Home.
+        const sceneParam = new URLSearchParams(window.location.search).get('scene');
+        this.scene.start(sceneParam || GameManager.area);
     }
 
     loadingLogo() {
