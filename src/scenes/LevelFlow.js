@@ -21,6 +21,35 @@ export default class LevelFlow extends BaseGame {
         this.setupMusic('music1');
         this.setupNet();
         this.setupShardHud();
+        this.setupReturnPortal();
+    }
+
+    // Home return portal at the summit (near the finish line), so players
+    // can get back without using the menu.
+    setupReturnPortal() {
+        if (!this.portals) {
+            this.portals = this.physics.add.staticGroup();
+        }
+        const portal = this.portals.create(4900, 1100, 'portal3')
+            .setScale(.2)
+            .play('portal3')
+            .setTint(0x7CFC00);
+        portal.targetScene = 'Home';
+        this.shrinkCollision(portal, 140, 140);
+
+        this.physics.add.overlap(this.player, this.portals, (player, p) => {
+            if (p.targetScene && this.scene.key !== p.targetScene) {
+                GameManager.useLastLocation = false;
+                GameManager.save();
+                this.scene.start(p.targetScene);
+            }
+        });
+
+        this.add.text(4900, 1020, 'HOME', {
+            fontSize: '18px',
+            color: '#7CFC00',
+            fontStyle: 'bold',
+        }).setOrigin(.5);
     }
 
     setupShardHud() {

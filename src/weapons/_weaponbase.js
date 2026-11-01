@@ -134,7 +134,10 @@ export default class WeaponBase {
         const ray = new Phaser.Geom.Line(data.start.x, data.start.y, data.end.x, data.end.y);
         const RectRay = this.polygonRay(data, data.rayThickness);
 
-        this.scene.graphics = this.scene.add.graphics();
+        // Reuse a single graphics object (was leaking one per frame).
+        if (!this.scene.graphics) {
+            this.scene.graphics = this.scene.add.graphics();
+        }
         // this.scene.graphics.clear();
         // this.scene.graphics.lineStyle(2, 0xff0000);
 

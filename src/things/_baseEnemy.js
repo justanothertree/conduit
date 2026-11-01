@@ -123,14 +123,14 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
                             this.stunned = false;
                             this.setVelocity(this.prevVelocity.x, this.prevVelocity.y);
                             delete this.prevVelocity
-                            this.setTint();
+                            this.restoreTint();
                         }
                     }
                 });
             } else {
                 this.setTint(0xff0000);
                 this.scene?.time.delayedCall(100, () => {
-                    this.setTint();
+                    this.restoreTint();
                 })
             }
 
@@ -197,9 +197,11 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
 
     deactivate() {
         const now = Date.now();
+        // Detach the update listener (registered in constructor) to avoid leaks.
+        this.scene?.events.off('update', this.currentSpeed, this);
         if (this.healthBar) {
             this.healthBar.destroy();
-            this.healthbar = null;
+            this.healthBar = null;
         }
         if (this.healthBarBg) {
             this.healthBarBg.destroy();
@@ -236,6 +238,10 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
 
         this.lastActiveAt = now;
 
+        // Re-register the update listener (removed in deactivate()).
+        this.scene.events.off('update', this.currentSpeed, this);
+        this.scene.events.on('update', this.currentSpeed, this);
+
         return true;
     }
 
@@ -252,6 +258,12 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
             (this.width - x) / 2,
             (this.height - y) / 2
         );
+    }
+
+    // Hook: clear the hit-flash tint. Subclasses with a persistent tint
+    // (e.g. Boss phase colors) override this to restore it instead.
+    restoreTint() {
+        this.setTint();
     }
 
     currentSpeed(time, delta) {
@@ -352,7 +364,7 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
             this.accelToPlayerTimer = this.scene.time.addEvent({
                 delay: 1000,
                 loop: true,
-                callcback: () => this.accelToPlayer()
+                callback: () => this.accelToPlayer()
             })
         }
         const direction = new Phaser.Math.Vector2(this.player.x - this.x, this.player.y - this.y).normalize();

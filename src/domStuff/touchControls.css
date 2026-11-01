@@ -129,6 +129,16 @@
     border-color: rgba(255, 120, 120, calc(0.7 * var(--tc-opacity)));
 }
 
+/* WHIP: fires the Slot 2 (secondary) weapon. Sits above ATK. */
+.tc-whip {
+    width: calc(68px * var(--tc-scale));
+    height: calc(68px * var(--tc-scale));
+    right: calc(96px * var(--tc-scale));
+    bottom: calc(140px * var(--tc-scale));
+    font-size: calc(14px * var(--tc-scale));
+    border-color: rgba(180, 120, 255, calc(0.7 * var(--tc-opacity)));
+}
+
 /* ------------------------------------------------------- pause + menu */
 #tc-pause {
     position: absolute;

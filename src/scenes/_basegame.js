@@ -186,16 +186,16 @@ export default class BaseGame extends Phaser.Scene {
       this.invMenu.init({ player: this.player });
     }
 
+    // Inventory is a DOM panel now (see Inventory.js). Toggle via its
+    // controller; never scene.setActive(false) — deactivating makes the
+    // isActive check above re-run create() without shutdown on the next
+    // respawn/portal, stacking keyboard listeners.
     const openInv = () => {
-      this.invMenu.scene.setVisible(true);
-      this.invMenu.scene.setActive(true);
-      this.invMenu.input.enabled = true;
+      this.invMenu.openPanel();
     }
 
     const closeInv = () => {
-      this.invMenu.scene.setVisible(false);
-      this.invMenu.input.enabled = false;
-      this.invMenu.scene.setActive(false);
+      this.invMenu.closePanel();
     }
     this.input.keyboard.on('keydown-C', () => {
       openInv?.();

@@ -8,7 +8,11 @@ export function setupDiscordWindow() {}
 
 
 export async function sendDiscordMessage(message) {
-    const webhookURL = "https://discord.com/api/webhooks/1406792582197149699/xlWk4jLxvCzyILXd1E0OxcneZVhYz6Rjp8Z48A0EGtvl3rKusWT2lxCdvphSPohRqACL";
+    // Webhook URL removed (was hardcoded in the repo — security risk).
+    // Set conduitDiscordWebhookUrl in your environment/config to re-enable
+    // chat -> Discord bridging.
+    const webhookURL = "";
+    if (!webhookURL) return;
 
     const messageToSend = message;
     const playerName = GameManager.name.text;

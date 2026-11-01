@@ -204,11 +204,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             if (this.currentState === 'meditate') return;
             const pointer = this.scene.input.activePointer;
 
-            if (pointer.leftButtonDown() && !this.inventory.scene.isVisible()) {
+            if (pointer.leftButtonDown() && !invOpen) {
                 this.leftWeapon.fire(pointer);
                 this.meditateTimer = 0;
             }
-            if (pointer.rightButtonDown() && !this.inventory.scene.isVisible()) {
+            if (pointer.rightButtonDown() && !invOpen) {
                 this.rightWeapon.fire(pointer);
                 this.meditateTimer = 0;
             }
@@ -216,8 +216,15 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             // point (nearest enemy, else facing direction). Desktop mouse
             // path above is unchanged; this only maps touch input onto the
             // existing fire action.
-            if (document.attackButton?.isClicked && !this.inventory.scene.isVisible()) {
+            const invOpen = this.inventory?.isPanelOpen?.() ?? false;
+            if (document.attackButton?.isClicked && !invOpen) {
                 this.leftWeapon.fire(getTouchAimPointer(this));
+                this.meditateTimer = 0;
+            }
+            // Touch Whip button: fires the secondary (Slot 2) weapon so
+            // phones can actually use it — desktop uses right-click.
+            if (document.attackButton2?.isClicked && !invOpen) {
+                this.rightWeapon.fire(getTouchAimPointer(this));
                 this.meditateTimer = 0;
             }
         }
@@ -247,8 +254,15 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     setStats() {
-        this.healthMax = GameManager.stats.healthMax ?? 25;
-        this.health = GameManager.stats.health ?? 25;
+        // healthMax is derived live from Shard Shop Max Health levels —
+        // never stored, so resetAllUpgrades() can't desync it (the old
+        // stored value survived the wipe while shards were refunded,
+        // allowing infinite Max HP stacking).
+        this.healthMax = 25 + 5 * (GameManager.upgrades?.shardShop?.maxHealth ?? 0);
+        this.health = GameManager.stats.health ?? this.healthMax;
+        // Clamp: if max HP dropped (shouldn't happen — shards are never
+        // refunded) don't leave health above max.
+        if (this.health > this.healthMax) this.health = this.healthMax;
         this.emit('updateHealth', this.health, this.healthMax);
         this.network.socket.emit('updateHealth', this.health, this.healthMax);
     }
@@ -317,7 +331,9 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         this.rightWeapon.release();
         this.setVelocity(0, 0);
         GameManager.useLastLocation = false;
-        GameManager.stats.health = 25;
+        // Respawn at full derived max HP (was hardcoded 25, ignoring
+        // Shard Shop Max Health upgrades).
+        GameManager.stats.health = 25 + 5 * (GameManager.upgrades?.shardShop?.maxHealth ?? 0);
         GameManager.save();
         this.scene.scene.restart()
     }

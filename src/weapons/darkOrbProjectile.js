@@ -2,7 +2,7 @@ import WeaponProjectile from "./_baseWeaponProjectile.js";
 
 export default class DarkOrbProjectile extends WeaponProjectile {
     constructor(scene, x, y, player, weapon, pointer) {
-        super(scene, x, y, 'darkorb', player, 1)
+        super(scene, x, y, 'darkorb', player, weapon)
         this.destroyOnHit = false;
 
         this.pointer = pointer;

@@ -160,7 +160,9 @@ export default class WeaponWhip extends WeaponBase {
             this.stopWhip();
         });
 
-        this.player.on('playerstunned', () => this.release());
+        this.player.off('playerstunned', this._stunReleaseHandler);
+        this._stunReleaseHandler = () => this.release();
+        this.player.on('playerstunned', this._stunReleaseHandler);
     }
 
     release() {

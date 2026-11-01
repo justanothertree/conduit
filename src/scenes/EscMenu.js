@@ -22,7 +22,10 @@ export default class EscMenu extends Phaser.Scene {
         this.visible = false;
         this.input.enabled = false;
         this.scene.setVisible(false);
-        this.scene.setActive(false);
+        // NOTE: do NOT call scene.setActive(false) here. Deactivating makes
+        // !scene.isActive('EscMenu') in _basegame re-run create() without
+        // shutdown on every respawn/portal, stacking keydown-ESC listeners
+        // (Settings double-toggles closed on every odd respawn).
 
         this.uiElements = [];
 
@@ -145,6 +148,9 @@ export default class EscMenu extends Phaser.Scene {
 
         this.input.keyboard.on('keydown-ESC', () => {
             if(getChatting()) return;
+            // If the inventory DOM panel is open, ESC closes it (handled
+            // by Inventory's own keydown-ESC) — don't toggle settings too.
+            if (document.getElementById('inventory-panel')) return;
             toggleSettings();
         })
         // Close-only variant of toggleSettings: after a level restart
@@ -188,15 +194,9 @@ export default class EscMenu extends Phaser.Scene {
         menuAction('INVENTORY', 320, () => {
             const inv = this.gameScene.invMenu;
             if (!inv) return;
-            if (inv.scene.isVisible()) {
-                inv.scene.setVisible(false);
-                inv.input.enabled = false;
-                inv.scene.setActive(false);
-            } else {
-                inv.scene.setVisible(true);
-                inv.scene.setActive(true);
-                inv.input.enabled = true;
-            }
+            // The inventory is a DOM panel now; toggle via its controller.
+            if (inv.isPanelOpen()) inv.closePanel();
+            else inv.openPanel();
             closeMenu();
         });
 

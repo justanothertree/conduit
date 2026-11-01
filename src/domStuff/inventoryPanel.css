@@ -1,0 +1,198 @@
+/* Inventory panel. Responsive DOM overlay (not canvas) so it works on
+   phones: z-index 20 sits above the touch overlay (z-index 10), same as
+   #shard-shop. Narrow screens get a near-full-width panel with 44px+
+   tap targets instead of a scaled-down canvas. */
+
+#inventory-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+#inventory-panel .inv-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    pointer-events: auto;
+}
+
+#inventory-panel .inv-panel {
+    position: relative;
+    pointer-events: auto;
+    width: min(480px, 94vw);
+    max-height: 90vh;
+    overflow-y: auto;
+    background: #101826;
+    border: 2px solid #ffd75e;
+    border-radius: 12px;
+    padding: 16px;
+    color: #e8f6ff;
+    font-family: sans-serif;
+    box-shadow: 0 0 24px rgba(255, 215, 94, 0.2);
+}
+
+#inventory-panel .inv-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 20px;
+    font-weight: bold;
+    color: #ffd75e;
+    margin-bottom: 8px;
+}
+
+#inventory-panel .inv-close {
+    background: none;
+    border: 2px solid #ffd75e;
+    border-radius: 8px;
+    color: #ffd75e;
+    font-size: 22px;
+    line-height: 1;
+    width: 44px;
+    height: 44px;
+    cursor: pointer;
+}
+
+#inventory-panel .inv-sub {
+    font-size: 14px;
+    color: #9db8cc;
+    margin-bottom: 12px;
+}
+
+#inventory-panel .inv-sub .inv-money {
+    color: #ffd75e;
+    font-weight: bold;
+}
+
+#inventory-panel .inv-section-title {
+    font-size: 16px;
+    font-weight: bold;
+    color: #ffd75e;
+    margin: 14px 0 8px;
+    border-bottom: 1px solid #24405a;
+    padding-bottom: 4px;
+}
+
+/* Weapon rows: icon + name + Slot 1 / Slot 2 buttons */
+#inventory-panel .inv-weapon {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-top: 1px solid #24405a;
+}
+
+#inventory-panel .inv-weapon-name {
+    flex: 1;
+    font-size: 16px;
+    font-weight: bold;
+    text-transform: capitalize;
+}
+
+#inventory-panel .inv-weapon-equipped {
+    font-size: 12px;
+    color: #00ff88;
+    font-weight: normal;
+}
+
+#inventory-panel .inv-slot-btn {
+    min-width: 76px;
+    min-height: 44px;
+    font-size: 15px;
+    font-weight: bold;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 2px solid #4a6a8a;
+    background: #1a2a3a;
+    color: #e8f6ff;
+}
+
+#inventory-panel .inv-slot-btn.active {
+    border-color: #00ff88;
+    color: #00ff88;
+}
+
+/* Talent rows: tap to inspect, then buy */
+#inventory-panel .inv-talent {
+    padding: 8px;
+    border-top: 1px solid #24405a;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+#inventory-panel .inv-talent.selected {
+    background: #1a2a3a;
+    border: 1px solid #4a6a8a;
+}
+
+#inventory-panel .inv-talent-name {
+    font-size: 16px;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#inventory-panel .inv-talent-pips {
+    font-size: 13px;
+    color: #9db8cc;
+}
+
+#inventory-panel .inv-talent-detail {
+    margin-top: 8px;
+    font-size: 14px;
+    color: #9db8cc;
+}
+
+#inventory-panel .inv-talent-detail .inv-cost {
+    color: #ffd75e;
+    font-weight: bold;
+}
+
+#inventory-panel .inv-buy {
+    margin-top: 8px;
+    min-width: 100px;
+    min-height: 44px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #101826;
+    background: #ffd75e;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+#inventory-panel .inv-buy:disabled {
+    background: #3a4a5c;
+    color: #8a9bb0;
+    cursor: default;
+}
+
+#inventory-panel .inv-talent.maxed .inv-talent-name {
+    color: #00ff88;
+}
+
+/* Reset button */
+#inventory-panel .inv-reset {
+    margin-top: 16px;
+    width: 100%;
+    min-height: 48px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #ff6666;
+    background: none;
+    border: 2px solid #ff6666;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+#inventory-panel .inv-note {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #6b839a;
+    text-align: center;
+}

@@ -155,14 +155,18 @@ export default class Home extends BaseGame {
     updateScoreBoard(data) {
         if (!this.scoreBoard) this.scoreBoard = {};
 
-        let x = 0;
-        let y = 0;
-
         data.forEach(obj => {
+            let x = 0;
+            let y = 0;
+
             switch (obj.level) {
                 case 'Home':
                     x = 5200;
                     y = 250;
+                    break;
+                case 'LevelFlow':
+                    x = this.portalData['portalFlow'].x;
+                    y = this.portalData['portalFlow'].y;
                     break;
                 case 'Level2':
                     x = this.portalData['portal2'].x;

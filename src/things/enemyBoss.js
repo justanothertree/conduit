@@ -44,7 +44,7 @@ export default class Boss extends BaseEnemy {
         if (this.dead) return;
         this.patrol(time);       // inherited ground patrol (uses phase speed)
         this.facePlayer();
-        this.tickAttacks(time);
+        this.tickAttacks();
     }
 
     // Face the player without touching patrol's speed logic.
@@ -85,16 +85,25 @@ export default class Boss extends BaseEnemy {
         }
     }
 
-    tickAttacks(time) {
+    // After BaseEnemy's hit-flash clears the tint, restore the phase color.
+    restoreTint() {
+        this.setTint(this.phase === 2 ? 0xff8800 : this.phase === 3 ? 0xff2222 : 0xcc55ff);
+    }
+
+    tickAttacks() {
         if (this.dead || this.stunned || !this.player) return;
+        // Use scene.time.now (not the preUpdate `time` param, which is
+        // game.loop.time) so the clock matches activate() and doesn't cause
+        // instant frame-1 fireballs or unpause bursts.
+        const now = this.scene.time.now;
         this.updatePhase();
-        if (time >= this.nextFireball && this.distanceToPlayer() < 900) {
-            this.nextFireball = time + this.fireRate;
+        if (now >= this.nextFireball && this.distanceToPlayer() < 900) {
+            this.nextFireball = now + this.fireRate;
             this.spitFireballs(this.phase >= 2 ? 3 : 1);
         }
         const onGround = this.body?.blocked.down || this.body?.touching.down;
-        if (this.phase === 3 && onGround && time >= this.nextLeap) {
-            this.nextLeap = time + 4000;
+        if (this.phase === 3 && onGround && now >= this.nextLeap) {
+            this.nextLeap = now + 4000;
             const dx = this.player.x - this.x;
             this.setVelocity(Math.sign(dx) * 500, -550);
         }
@@ -122,6 +131,11 @@ export default class Boss extends BaseEnemy {
             bullet.play('fireball');
             this.scene.physics.velocityFromAngle(
                 Phaser.Math.RadToDeg(angle), 450, bullet.body.velocity);
+            // Boss fireballs get a 4s lifespan instead of Bullet's infinite
+            // world-wrap, so they can't fly forever.
+            this.scene.time.delayedCall(4000, () => {
+                if (bullet.active) bullet.destroy();
+            });
         }
     }
 

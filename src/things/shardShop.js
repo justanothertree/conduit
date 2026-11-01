@@ -57,9 +57,11 @@ export function spendableShardIds() {
 
 function applyUpgrade(line, player) {
     if (line === 'maxHealth') {
-        GameManager.stats.healthMax += 5;
-        player.healthMax = GameManager.stats.healthMax;
-        // Heal by the gain so the purchase isn't a downgrade at low HP.
+        // healthMax is derived live in Player.setStats() from
+        // upgrades.shardShop.maxHealth — refresh it here and heal by the
+        // gain so the purchase isn't a downgrade at low HP. Nothing is
+        // stored in GameManager.stats (see resetAllUpgrades exploit fix).
+        player.setStats();
         player.adjustHealth(5);
     } else if (line === 'aura') {
         // Aura radius/cooldown/damage are read live from GameManager in

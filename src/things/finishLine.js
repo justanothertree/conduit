@@ -25,7 +25,6 @@ export default class FinishLine extends Pickup {
             callbackScope: this.scene,
 
         })
-        this.scene.spawnManager.spawnCard();
 
         this.scene.network.socket.emit('highScoreRequest', { level, time, player })
     }

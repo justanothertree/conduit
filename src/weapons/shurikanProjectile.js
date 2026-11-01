@@ -112,7 +112,7 @@ export default class ShurikanProjectile extends WeaponProjectile {
         for (let i = 0; i < Math.min(validTargets.length, this.maxTargets); i++) {
             const { target, handler, pos } = validTargets[i];
             this.chainCount--;
-            const chainShurikan = new ShurikanProjectile(this.scene, thisPos.x, thisPos.y, this.player, this.weapon, this.chainCount, 1, 1, this.damageScale)
+            const chainShurikan = new ShurikanProjectile(this.scene, thisPos.x, thisPos.y, this.player, this.weapon, this.chainCount, 1, 1, false)
             chainShurikan.hitTargets.push(enemy);
             this.scene.weaponGroup.add(chainShurikan);
             const direction = pos.subtract(thisPos).normalize().scale(1000);

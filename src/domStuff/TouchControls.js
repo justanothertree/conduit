@@ -53,8 +53,10 @@ function clearMoveFlags() {
 export function setupTouchControls() {
     const settings = loadSettings();
 
-    // Attack flag read by Player (document.attackButton?.isClicked).
+    // Attack flags read by Player (document.attackButton?.isClicked for
+    // Slot 1, document.attackButton2?.isClicked for Slot 2 / Whip).
     document.attackButton = document.attackButton || { isClicked: false };
+    document.attackButton2 = document.attackButton2 || { isClicked: false };
 
     const root = document.createElement('div');
     root.id = 'touch-controls';
@@ -192,10 +194,16 @@ export function setupTouchControls() {
     const releaseAttack = () => {
         try { gameScene()?.player?.leftWeapon?.release(); } catch { /* no player yet */ }
     };
+    const releaseAttack2 = () => {
+        try { gameScene()?.player?.rightWeapon?.release(); } catch { /* no player yet */ }
+    };
 
     holdButton('JUMP', 'tc-jump', document.jumpButton);
     holdButton('DASH', 'tc-dash', document.dashButton);
     holdButton('ATK', 'tc-attack', document.attackButton, null, releaseAttack);
+    // WHIP: fires the Slot 2 (secondary) weapon — desktop uses right-click,
+    // which phones don't have. Whip is the typical slot-2 weapon.
+    holdButton('WHIP', 'tc-whip', document.attackButton2, null, releaseAttack2);
 
     // ------------------------------------------------------- pause + menu
     const pauseBtn = document.createElement('div');
@@ -254,9 +262,10 @@ export function setupTouchControls() {
     menuButton('Interact', () => emitGameKey('keydown-F'));
     menuButton('Inventory', () => {
         const gs = gameScene();
-        if (!gs) return;
-        if (gs.invMenu?.scene.isVisible()) gs.input.keyboard.emit('keyup-C');
-        else gs.input.keyboard.emit('keydown-C');
+        if (!gs?.invMenu) return;
+        // Toggle the DOM panel via its controller.
+        if (gs.invMenu.isPanelOpen()) gs.invMenu.closePanel();
+        else gs.invMenu.openPanel();
     });
     menuButton('Home', () => emitGameKey('keydown-T'));
     menuButton('Respawn', () => emitGameKey('keydown-R'));
@@ -338,7 +347,8 @@ export function setupTouchControls() {
         const em = gameScene()?.scene.get('EscMenu');
         return !!(em && (em.visible || em.scene.isVisible()));
     };
-    const inventoryOpen = () => !!gameScene()?.invMenu?.scene.isVisible();
+    // Inventory is a DOM panel now — check the DOM, not the Phaser scene.
+    const inventoryOpen = () => !!document.getElementById('inventory-panel');
     const chatOpen = () => {
         try { return getChatting(); } catch { return false; }
     };
@@ -348,10 +358,11 @@ export function setupTouchControls() {
         base.style.display = 'none';
         knob.style.transform = 'translate(0px, 0px)';
         clearMoveFlags();
-        for (const f of [document.jumpButton, document.dashButton, document.attackButton, document.healButton]) {
+        for (const f of [document.jumpButton, document.dashButton, document.attackButton, document.attackButton2, document.healButton]) {
             if (f) f.isClicked = false;
         }
         releaseAttack();
+        releaseAttack2();
         root.querySelectorAll('.tc-btn.pressed').forEach((b) => b.classList.remove('pressed'));
     };
 
