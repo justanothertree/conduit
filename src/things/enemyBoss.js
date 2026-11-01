@@ -34,8 +34,9 @@ export default class Boss extends BaseEnemy {
         this.fireRate = 2500;
         this.nextFireball = 0;
         this.nextLeap = 0;
-
-        this.scaleCollision(60, 60);
+        // NOTE: scaleCollision is NOT called here — this.body is null until
+        // the sprite joins the physics world (Group.add). It's called in
+        // activate() instead, like Bat/Duck/Sunman do in init().
     }
 
     preUpdate(time, delta) {
@@ -58,6 +59,7 @@ export default class Boss extends BaseEnemy {
         super.activate(x, y, health);
         this.setScale(.75);
         this.setTint(0xcc55ff); // activate() clears tint
+        this.scaleCollision(60, 60); // body exists now (in the physics world)
         this.phase = 1;
         this.fireRate = 2500;
         this.speed = 160;

@@ -84,19 +84,6 @@ window.addEventListener('keydown', function (e) {
   }
 });
 
-// TEMPORARY DIAGNOSTIC (2026-11-01): on-screen error overlay to catch the
-// LevelFlow soft-lock. Remove once diagnosed.
-window.addEventListener('error', (e) => {
-  const div = document.getElementById('err-overlay') || (() => {
-    const d = document.createElement('div');
-    d.id = 'err-overlay';
-    d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#a00;color:#fff;font:14px monospace;padding:10px;white-space:pre-wrap;max-height:50vh;overflow:auto;';
-    document.body.appendChild(d);
-    return d;
-  })();
-  div.textContent += e.message + '\n' + (e.error?.stack || '') + '\n---\n';
-});
-
 // Pinch-zoom breaks the fixed-position touch UI, so it's killed here.
 // iOS Safari ignores user-scalable=no in the viewport meta — the
 // gesturestart/gesturechange prevention is what actually stops it there.
