@@ -1,11 +1,18 @@
 import GameManager from "../things/GameManager";
+import { isTouchDevice } from "./TouchControls.js";
 
 
 const sec = document.getElementById("discord-section");
 export function setupDiscordWindow() {
     const moveDiscordButton = document.getElementById("discordHideButton");
 
-    setTimeout(()=>sec.classList.toggle('hidden'), 5000);
+    // On touch the 350px widget covers the whole phone screen — start
+    // collapsed (the toggle still opens it). Desktop keeps the 5s peek.
+    if (isTouchDevice()) {
+        sec.classList.add('hidden');
+    } else {
+        setTimeout(()=>sec.classList.toggle('hidden'), 5000);
+    }
 
     moveDiscordButton.addEventListener('mousedown', (e) => {
         e.stopPropagation();

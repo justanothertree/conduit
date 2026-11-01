@@ -14,6 +14,15 @@
     transform: translateX(calc(100% - 60px));
 }
 
+/* On touch the widget iframe would cover the phone screen — shrink it so
+   the toggle-opened panel stays usable in portrait. */
+@media (pointer: coarse) {
+    #discord-section iframe {
+        width: 270px;
+        height: 380px;
+    }
+}
+
 #discordHideButton {
     background-image: url(/assets/DiscordToggle.png);
     background-size: cover;

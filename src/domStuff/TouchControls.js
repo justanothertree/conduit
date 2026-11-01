@@ -157,6 +157,25 @@ export function setupTouchControls() {
         };
         btn.addEventListener('touchend', release);
         btn.addEventListener('touchcancel', release);
+        // A finger sliding off the button releases it (touchmove still
+        // dispatches to the touch's start target, so check the point
+        // against the button's rect). Otherwise a missed slide keeps
+        // the button held until the finger lifts.
+        btn.addEventListener('touchmove', (e) => {
+            const r = btn.getBoundingClientRect();
+            for (const t of e.changedTouches) {
+                if (touches.has(t.identifier) &&
+                    (t.clientX < r.left || t.clientX > r.right ||
+                     t.clientY < r.top || t.clientY > r.bottom)) {
+                    touches.delete(t.identifier);
+                }
+            }
+            if (touches.size === 0 && btn.classList.contains('pressed')) {
+                if (flag) flag.isClicked = false;
+                btn.classList.remove('pressed');
+                extraUp?.();
+            }
+        }, { passive: true });
         actions.appendChild(btn);
         return btn;
     }
@@ -238,6 +257,15 @@ export function setupTouchControls() {
     menuButton('Spectate', () => emitGameKey('keydown-RIGHT'));
     menuButton('Chat', () => {
         document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
+    });
+    // Voice: parity with the desktop key bar's voice-chat join button, which
+    // is hidden on touch devices (the whole #kb-section is). Mirrors the
+    // joinVoiceChat handler in _basegame.setupWorld: init the mic only if
+    // the audio context isn't up yet.
+    menuButton('Voice', () => {
+        const vc = gameScene()?.network?.voiceChat;
+        if (!vc) return;
+        if (!vc.audioContext) vc._initMic();
     });
 
     // ------------------------------------------------- touch settings

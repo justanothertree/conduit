@@ -188,8 +188,11 @@ export default class Preloader extends Phaser.Scene {
 
         // ?scene=LevelName jumps straight into a scene (level testing,
         // phone pass) instead of the saved area. Defaults to Home.
+        // A mistyped name would otherwise leave the player stuck on a
+        // blank screen, so unknown keys fall back to the saved area.
         const sceneParam = new URLSearchParams(window.location.search).get('scene');
-        this.scene.start(sceneParam || GameManager.area);
+        const startScene = sceneParam && this.scene.get(sceneParam) ? sceneParam : GameManager.area;
+        this.scene.start(startScene);
     }
 
     loadingLogo() {

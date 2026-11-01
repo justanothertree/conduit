@@ -1,5 +1,6 @@
 import { getChatting } from "../domStuff/Chat.js";
 import { addSettingsButton } from "../domStuff/KeyBinds.js";
+import { isTouchDevice } from "../domStuff/TouchControls.js";
 import { mapRangeClamped } from "../myFunctions.js";
 import GameManager from "../things/GameManager.js";
 import NetworkManager from "../things/NetworkManager.js";
@@ -98,7 +99,9 @@ export default class EscMenu extends Phaser.Scene {
         this.menuPanel.add(donate);
 
         const instructions = this.add.text(0, 50,
-            'ASD - Move\nW - Heal\nSPACE - Jump\nSHIFT - dash\nL/R Click - Attack\nC -Inventory\nT - Home\n<-/-> - Spectate Others\nUpArrow^ - Spectate Self', {
+            isTouchDevice()
+                ? 'Left thumb - Move / Crouch\nRight buttons - Jump / Dash / Attack\nPause menu - Heal, Items, Home, Voice, Chat'
+                : 'ASD - Move\nW - Heal\nSPACE - Jump\nSHIFT - dash\nL/R Click - Attack\nC -Inventory\nT - Home\n<-/-> - Spectate Others\nUpArrow^ - Spectate Self', {
             fontSize: '28px',
             color: '#4fffff',
         });
