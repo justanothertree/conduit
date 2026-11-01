@@ -208,7 +208,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
                 this.leftWeapon.fire(pointer);
                 this.meditateTimer = 0;
             }
-            if (pointer.rightButtonDown() && !invOpen) {
+            if (pointer.rightButtonDown() && !invOpen && this.rightWeapon) {
                 this.rightWeapon.fire(pointer);
                 this.meditateTimer = 0;
             }
@@ -223,7 +223,9 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             }
             // Touch Whip button: fires the secondary (Slot 2) weapon so
             // phones can actually use it — desktop uses right-click.
-            if (document.attackButton2?.isClicked && !invOpen) {
+            // (Null check: tapping WHIP with no Slot 2 equipped used to
+            // throw and freeze the game.)
+            if (document.attackButton2?.isClicked && !invOpen && this.rightWeapon) {
                 this.rightWeapon.fire(getTouchAimPointer(this));
                 this.meditateTimer = 0;
             }
