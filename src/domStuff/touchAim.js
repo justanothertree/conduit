@@ -19,6 +19,10 @@ export function computeTouchAim(player, range = TOUCH_AIM_RANGE) {
     let bestD = range;
     const groups = (scene && scene.attackableGroups) || [];
     for (const entry of groups) {
+        // Only target actual enemies (zap:true) — not platforms, coins,
+        // shards, cards, boosters, portals, or the Home Vault. (The Vault
+        // hit would withdraw half the banked Source!)
+        if (!entry.zap) continue;
         const group = entry && entry.group;
         if (!group || typeof group.getChildren !== 'function') continue;
         for (const t of group.getChildren()) {
@@ -33,7 +37,12 @@ export function computeTouchAim(player, range = TOUCH_AIM_RANGE) {
         }
     }
     if (best) return { x: best.x, y: best.y };
-    const dir = player.dir || 1;
+    // No enemy in range: aim where the player is facing. flipX tracks
+    // facing continuously (playerStates sets it on every move); player.dir
+    // is only set during wall-jumps and can be stale, so flipX wins.
+    const dir = typeof player.flipX === 'boolean'
+        ? (player.flipX ? -1 : 1)
+        : (player.dir || 1);
     return { x: player.x + dir * TOUCH_AIM_FALLBACK_DIST, y: player.y - 20 };
 }
 

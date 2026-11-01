@@ -27,6 +27,12 @@ export function playerSetState(player, newState, input) {
 }
 
 export function playerGetInput(player) {
+    // Touch slam: rising-edge of the touch crouch button, so mid-air
+    // Ground-Slam works on phones without burning Dash first. (Keyboard
+    // uses JustDown on the down key; touch needs the manual edge detect.)
+    const touchCrouch = !!document.crouchButton?.isClicked;
+    const touchSlam = touchCrouch && !player._prevTouchCrouch;
+    player._prevTouchCrouch = touchCrouch;
     return {
         left: player.controls.left.isDown || document.leftButton.isClicked,
         right: player.controls.right.isDown || document.rightButton.isClicked,
@@ -34,7 +40,7 @@ export function playerGetInput(player) {
         dash: player.controls.dash.isDown || document.dashButton.isClicked,
         crouch: player.controls.down.isDown || document.crouchButton.isClicked,
         heal: player.controls.up.isDown || document.healButton.isClicked,
-        slam: Phaser.Input.Keyboard.JustDown(player.controls.down),
+        slam: Phaser.Input.Keyboard.JustDown(player.controls.down) || touchSlam,
     };
 }
 

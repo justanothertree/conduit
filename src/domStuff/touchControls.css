@@ -196,6 +196,12 @@
     transform: translateX(0);
 }
 
+/* Must beat #touch-controls.left-handed #tc-menu above (2 IDs beats
+   1 ID + 1 class), or the menu stays slid off-screen in left-handed mode. */
+#touch-controls.left-handed #tc-menu.open {
+    transform: translateX(0);
+}
+
 .tc-menu-title {
     color: rgba(255, 255, 255, 0.55);
     font-size: 12px;

@@ -161,14 +161,22 @@ export function setupTouchControls() {
         // A finger sliding off the button releases it (touchmove still
         // dispatches to the touch's start target, so check the point
         // against the button's rect). Otherwise a missed slide keeps
-        // the button held until the finger lifts.
+        // the button held until the finger lifts. Sliding back onto the
+        // button without lifting re-presses it.
         btn.addEventListener('touchmove', (e) => {
             const r = btn.getBoundingClientRect();
             for (const t of e.changedTouches) {
-                if (touches.has(t.identifier) &&
-                    (t.clientX < r.left || t.clientX > r.right ||
-                     t.clientY < r.top || t.clientY > r.bottom)) {
+                const inside = t.clientX >= r.left && t.clientX <= r.right &&
+                    t.clientY >= r.top && t.clientY <= r.bottom;
+                if (touches.has(t.identifier) && !inside) {
                     touches.delete(t.identifier);
+                } else if (!touches.has(t.identifier) && inside) {
+                    // Slid back on without lifting — re-press.
+                    touches.add(t.identifier);
+                    if (flag) flag.isClicked = true;
+                    btn.classList.add('pressed');
+                    buzz();
+                    extraDown?.();
                 }
             }
             if (touches.size === 0 && btn.classList.contains('pressed')) {
@@ -349,7 +357,8 @@ export function setupTouchControls() {
 
     let overlayBlocked = false;
     const updateOverlayBlock = () => {
-        const blocked = escMenuOpen() || inventoryOpen() || chatOpen();
+        const blocked = escMenuOpen() || inventoryOpen() || chatOpen() ||
+            !!document.getElementById('shard-shop');
         if (blocked === overlayBlocked) return;
         overlayBlocked = blocked;
         root.classList.toggle('menu-open', blocked);
@@ -358,6 +367,13 @@ export function setupTouchControls() {
     // Menus open via synthetic keyboard events, so poll instead of hooking.
     setInterval(updateOverlayBlock, 200);
     updateOverlayBlock();
+
+    // OS notification / app switch / tab hide must never leave Jump/Dash/
+    // Move stuck on. Blur + visibilitychange both release everything.
+    window.addEventListener('blur', releaseAllInputs);
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) releaseAllInputs();
+    });
 
     applySettings();
     return { root, settings, applySettings };
