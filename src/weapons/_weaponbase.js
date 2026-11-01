@@ -29,7 +29,14 @@ export default class WeaponBase {
     }
 
     damage() {
-        return this.baseDamage * this.damageScaling();
+        return this.baseDamage * this.damageScaling() * this.shardDamageMult();
+    }
+
+    // Shard-shop Damage line: +10% weapon damage per purchased level.
+    // Read live from the save so it applies without re-equipping.
+    shardDamageMult() {
+        const lvl = GameManager.upgrades?.shardShop?.damage ?? 0;
+        return 1 + 0.10 * lvl;
     }
 
     damageScaling() {

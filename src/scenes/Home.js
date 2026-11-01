@@ -2,6 +2,7 @@ import BaseGame from './_basegame.js'
 import GameManager from '../things/GameManager.js';
 import ScoreBoard from '../things/scoreBoard.js';
 import Shop from '../things/shop.js';
+import ShardShop from '../things/shardShop.js';
 import Vault from '../things/vault.js';
 
 export default class Home extends BaseGame {
@@ -21,6 +22,7 @@ export default class Home extends BaseGame {
 
         this.setupPortals();
         this.setupShop();
+        this.setupShardShop();
         this.spawnBonusCard();
         this.setupVault();
 
@@ -234,6 +236,13 @@ export default class Home extends BaseGame {
     setupShop() {
         this.shop = new Shop(this, 2230, 3200);
         this.add.existing(this.shop);
+    }
+
+    // Shard upgrade shop: a keeper crystal east of the devil shop (far
+    // enough that the 150px interact radius doesn't overlap his).
+    setupShardShop() {
+        this.shardShop = new ShardShop(this, 2450, 3200);
+        this.add.existing(this.shardShop);
     }
 }
 

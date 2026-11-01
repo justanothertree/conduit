@@ -1,0 +1,116 @@
+/* Shard shop panel. DOM overlay (not canvas) so taps land reliably on
+   phones: z-index 20 sits above the touch overlay (z-index 10), and the
+   layout is responsive — narrow screens get a near-full-width panel with
+   big tap targets instead of a scaled canvas. */
+
+#shard-shop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+#shard-shop .ss-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    pointer-events: auto;
+}
+
+#shard-shop .ss-panel {
+    position: relative;
+    pointer-events: auto;
+    width: min(420px, 92vw);
+    max-height: 88vh;
+    overflow-y: auto;
+    background: #101826;
+    border: 2px solid #00ffff;
+    border-radius: 12px;
+    padding: 16px;
+    color: #e8f6ff;
+    font-family: sans-serif;
+    box-shadow: 0 0 24px rgba(0, 255, 255, 0.25);
+}
+
+#shard-shop .ss-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 20px;
+    font-weight: bold;
+    color: #00ffff;
+    margin-bottom: 4px;
+}
+
+#shard-shop .ss-close {
+    background: none;
+    border: 2px solid #00ffff;
+    border-radius: 8px;
+    color: #00ffff;
+    font-size: 22px;
+    line-height: 1;
+    width: 44px;
+    height: 44px;
+    cursor: pointer;
+}
+
+#shard-shop .ss-balance {
+    font-size: 16px;
+    color: #ffd75e;
+    margin-bottom: 12px;
+}
+
+#shard-shop .ss-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-top: 1px solid #24405a;
+}
+
+#shard-shop .ss-name {
+    font-size: 17px;
+    font-weight: bold;
+}
+
+#shard-shop .ss-pips {
+    color: #00ffff;
+    letter-spacing: 2px;
+    font-size: 15px;
+}
+
+#shard-shop .ss-desc {
+    font-size: 14px;
+    color: #9db8cc;
+    margin-top: 2px;
+}
+
+#shard-shop .ss-buy {
+    flex-shrink: 0;
+    min-width: 72px;
+    min-height: 48px;
+    font-size: 17px;
+    font-weight: bold;
+    color: #101826;
+    background: #00ffff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+#shard-shop .ss-buy:disabled {
+    background: #3a4a5c;
+    color: #8a9bb0;
+    cursor: default;
+}
+
+#shard-shop .ss-note {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #6b839a;
+    text-align: center;
+}

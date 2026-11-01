@@ -53,17 +53,23 @@ export default class AuraZap extends WeaponBase {
     }
 
     damage() {
-        return this.baseDamage + this.upA + this.upB;
+        // Shard-shop Aura line: +1 zap damage per level, on top of the
+        // shard-shop Damage line's +% multiplier (shared via shardDamageMult).
+        const shardAura = GameManager.upgrades?.shardShop?.aura ?? 0;
+        return (this.baseDamage + this.upA + this.upB + shardAura) * this.shardDamageMult();
     }
 
     setStats() {
         const upgrades = GameManager.upgrades;
 
         this.auraSprite.setAuraLevel(GameManager.power.auraLevel);
-        this.attackRange = Phaser.Math.Clamp(GameManager.power.auraLevel * 25, 250, 600);
+        // Shard-shop Aura line: +40 zap radius per level, stacking with the
+        // money-leveled aura range.
+        const shardAura = GameManager.upgrades?.shardShop?.aura ?? 0;
+        this.attackRange = Phaser.Math.Clamp(GameManager.power.auraLevel * 25 + shardAura * 40, 250, 680);
 
         if (this.zapTimer.delay) {
-            this.zapTimer.delay = this.baseZapCd / GameManager.power.auraLevel;
+            this.zapTimer.delay = (this.baseZapCd / GameManager.power.auraLevel) * Math.pow(0.9, shardAura);
         }
 
         if (upgrades.auraUpgradeA1) {

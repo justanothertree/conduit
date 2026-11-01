@@ -16,7 +16,6 @@ import LevelYaya1 from './scenes/LevelYaya1.js';
 import LevelFlow from './scenes/LevelFlow.js';
 import Level7 from './scenes/Level7.js';
 import Level8 from './scenes/Level8.js';
-import { setupDiscordWindow } from './domStuff/DiscordStuff.js';
 import setupChat from './domStuff/Chat.js';
 
 const config = {
@@ -84,7 +83,5 @@ window.addEventListener('keydown', function (e) {
     e.preventDefault(); // Prevent page from scrolling
   }
 });
-
-setupDiscordWindow();
 
 setupChat();

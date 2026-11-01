@@ -35,6 +35,8 @@ export default class PlayerUI extends Phaser.Scene {
         };
         this.player.on('updateHealth', this._healthHandler);
         this.player.on('moneyChanged', this._moneyHandler);
+        // A leftover boss bar from a previous level must not survive a restart.
+        this.hideBossBar();
     }
 
     create() {
@@ -97,8 +99,52 @@ export default class PlayerUI extends Phaser.Scene {
         super.update();
         this.cooldownRed(true);
         this.cooldownRed(false);
+        this.updateBossBar();
 
 
+    }
+
+    // ---- Boss HP bar: big, top-center, only visible while a boss fight is
+    // live. The boss calls showBossBar on activate and hideBossBar on
+    // death/deactivate; update() keeps the fill current and drops the bar
+    // if the boss is gone.
+    showBossBar(boss) {
+        this.hideBossBar();
+        this._boss = boss;
+        const w = Math.min(600, this.scale.width - 40);
+        const cx = this.scale.width / 2;
+        this.bossBarBg = this.add.rectangle(cx, 28, w, 22, 0x000000, 0.7)
+            .setScrollFactor(0).setDepth(1000);
+        this.bossBar = this.add.rectangle(cx - (w - 4) / 2, 28, w - 4, 16, 0xcc22cc, 1)
+            .setOrigin(0, 0.5).setScrollFactor(0).setDepth(1001);
+        this.bossBarWidth = w - 4;
+        this.bossText = this.add.text(cx, 6, 'BOSS', {
+            fontSize: '18px',
+            color: '#ff66ff',
+            fontStyle: 'bold',
+            stroke: '#000000',
+            strokeThickness: 4,
+        }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(1001);
+        this.updateBossBar();
+    }
+
+    updateBossBar() {
+        if (!this._boss || this._boss.dead || !this.bossBar) {
+            if (this._boss) this.hideBossBar();
+            return;
+        }
+        const frac = Phaser.Math.Clamp(this._boss.health / this._boss.maxHealth, 0, 1);
+        this.bossBar.setScale(frac, 1);
+    }
+
+    hideBossBar() {
+        this._boss = null;
+        this.bossBarBg?.destroy();
+        this.bossBar?.destroy();
+        this.bossText?.destroy();
+        this.bossBarBg = null;
+        this.bossBar = null;
+        this.bossText = null;
     }
 
     resizeUI(gamesize) {
@@ -112,6 +158,10 @@ export default class PlayerUI extends Phaser.Scene {
         this.rightWeaponIcon.y = height;
         this.textBoxX = width / 2;
         this.textBoxY = height / 2 + 100;
+        // Keep the boss bar centered if the window/phone rotates mid-fight.
+        if (this.bossBarBg) this.bossBarBg.x = width / 2;
+        if (this.bossBar && this.bossBarWidth) this.bossBar.x = width / 2 - this.bossBarWidth / 2;
+        if (this.bossText) this.bossText.x = width / 2;
     }
 
     setWeaponIcon(name = 'shurikan', slot = 0) {

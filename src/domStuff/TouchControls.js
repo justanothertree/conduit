@@ -10,6 +10,7 @@
 
 import './touchControls.css';
 import { computeJoystickInput } from './touchAim.js';
+import { getChatting } from './Chat.js';
 
 const SETTINGS_KEY = 'conduitTouchSettings';
 const DEFAULTS = { size: 1, opacity: 0.75, leftHanded: false };
@@ -191,7 +192,7 @@ export function setupTouchControls() {
     // ------------------------------------------------------- pause + menu
     const pauseBtn = document.createElement('div');
     pauseBtn.id = 'tc-pause';
-    pauseBtn.innerHTML = '<span>II</span>';
+    pauseBtn.innerHTML = '<span>☰</span>';
     root.appendChild(pauseBtn);
 
     const menu = document.createElement('div');
@@ -314,6 +315,49 @@ export function setupTouchControls() {
             toggleMenu(false);
         }
     }, { passive: true });
+
+    // ------------------------------------------ menu-open overlay guard
+    // The joystick zone covers the left 45% of the screen (right 45% in
+    // left-handed mode) and swallows every tap inside it (preventDefault +
+    // stopPropagation), so taps on the Esc menu, Inventory, or chat input
+    // can fail while one of them is open. When any of them is open, drop
+    // the joystick zone and action buttons out of the pointer path; the
+    // pause button and slide-out menu stay live so Inventory can still be
+    // closed from touch (its only touch close is the slide-out toggle).
+    // Any held inputs are released at the same time, since the overlay
+    // stops receiving touchend while blocked.
+    const escMenuOpen = () => {
+        const em = gameScene()?.scene.get('EscMenu');
+        return !!(em && (em.visible || em.scene.isVisible()));
+    };
+    const inventoryOpen = () => !!gameScene()?.invMenu?.scene.isVisible();
+    const chatOpen = () => {
+        try { return getChatting(); } catch { return false; }
+    };
+
+    const releaseAllInputs = () => {
+        stickTouchId = null;
+        base.style.display = 'none';
+        knob.style.transform = 'translate(0px, 0px)';
+        clearMoveFlags();
+        for (const f of [document.jumpButton, document.dashButton, document.attackButton, document.healButton]) {
+            if (f) f.isClicked = false;
+        }
+        releaseAttack();
+        root.querySelectorAll('.tc-btn.pressed').forEach((b) => b.classList.remove('pressed'));
+    };
+
+    let overlayBlocked = false;
+    const updateOverlayBlock = () => {
+        const blocked = escMenuOpen() || inventoryOpen() || chatOpen();
+        if (blocked === overlayBlocked) return;
+        overlayBlocked = blocked;
+        root.classList.toggle('menu-open', blocked);
+        if (blocked) releaseAllInputs();
+    };
+    // Menus open via synthetic keyboard events, so poll instead of hooking.
+    setInterval(updateOverlayBlock, 200);
+    updateOverlayBlock();
 
     applySettings();
     return { root, settings, applySettings };

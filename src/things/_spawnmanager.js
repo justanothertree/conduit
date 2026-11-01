@@ -2,6 +2,7 @@ import Enemy from "./_baseEnemy.js";
 import Bullet from "./bullet.js"
 import Duck from "./enemyDuck.js"
 import Bat from "./enemyBat.js"
+import Boss from "./enemyBoss.js"
 import SunMan from "./enemySunman.js";
 import Coin from "./coin.js";
 import Booster from "./booster.js";
@@ -38,6 +39,9 @@ export default class SpawnManager {
         this.duckGroup = this.scene.physics.add.group({
             classType: Duck,
         });
+        this.bossGroup = this.scene.physics.add.group({
+            classType: Boss,
+        });
         this.bulletGroup = this.scene.physics.add.group({ allowGravity: false });
         this.softBulletGroup = this.scene.physics.add.group({ allowGravity: false });
         this.itemGroup = this.scene.physics.add.group();
@@ -54,6 +58,7 @@ export default class SpawnManager {
             { group: this.batGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.sunmanGroup, handler: 'enemyHit', zap: true, walls: false },
             { group: this.duckGroup, handler: 'enemyHit', zap: true, walls: true },
+            { group: this.bossGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.bulletGroup, handler: 'bulletHit', zap: false, walls: false },
             { group: this.softBulletGroup, handler: 'bulletHit', zap: false, walls: false },
             { group: this.itemGroup, handler: 'itemHit', zap: false, walls: true },
@@ -113,22 +118,20 @@ export default class SpawnManager {
         return duck;
     }
 
-    // Flowline mini-boss: a big, angry duck. Same Duck underneath (no new
-    // enemy systems), just more health and presence. Unlike regular ducks
-    // it does not respawn — it's a per-run set piece guarding the arena.
-    spawnMiniBoss(x, y, obj) {
+    // Flowline boss: Conduit's first real boss (Boss class, 2-3 attack phases).
+    // A per-run set piece guarding the arena — unlike regular ducks it does
+    // not respawn.
+    spawnBoss(x, y, obj) {
         const props = getProperty(obj);
-        const health = props?.health ?? 150;
-        let duck = this.duckGroup.get(x, y);
-        if (duck) {
-            if (!duck.activate(x, y, health)) {
-                duck = this.duckGroup.create();
-                duck.activate(x, y, health);
+        const health = props?.health ?? Boss.MAX_HEALTH;
+        let boss = this.bossGroup.get(x, y);
+        if (boss) {
+            if (!boss.activate(x, y, health)) {
+                boss = this.bossGroup.create();
+                boss.activate(x, y, health);
             }
-            duck.setScale(.5);
-            duck.setTint(0xff5555);
         }
-        return duck;
+        return boss;
     }
 
     spawnCoin(x, y, obj) {

@@ -21,7 +21,10 @@ export default class WeaponProjectile extends Phaser.Physics.Arcade.Sprite {
 
     damage() {
         const scale = this.damageScale ?? 1;
-        return this.baseDamage * scale;
+        // Shard-shop Damage line: read live from the owning weapon so
+        // projectiles benefit without being re-thrown.
+        const shardMult = this.weapon?.shardDamageMult?.() ?? 1;
+        return this.baseDamage * scale * shardMult;
     }
 
     bulletHit(bullet) {

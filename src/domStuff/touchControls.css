@@ -18,6 +18,15 @@
     pointer-events: auto;
 }
 
+/* While a game menu (Esc/settings, Inventory) or chat is open, the
+   joystick zone and action buttons drop out of the pointer path so taps
+   reach the panels. The pause button and slide-out menu stay live so
+   Inventory can still be closed from touch. */
+#touch-controls.menu-open #tc-joystick-zone,
+#touch-controls.menu-open #tc-actions {
+    pointer-events: none;
+}
+
 /* ---------------------------------------------------------- joystick */
 #tc-joystick-zone {
     position: absolute;
@@ -125,18 +134,19 @@
     position: absolute;
     top: calc(10px + env(safe-area-inset-top));
     right: calc(12px + env(safe-area-inset-right));
-    width: calc(48px * var(--tc-scale));
-    height: calc(48px * var(--tc-scale));
-    border-radius: 12px;
+    width: calc(60px * var(--tc-scale));
+    height: calc(60px * var(--tc-scale));
+    border-radius: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(20, 20, 30, calc(0.55 * var(--tc-opacity)));
-    border: 2px solid rgba(255, 255, 255, calc(0.55 * var(--tc-opacity)));
-    color: rgba(255, 255, 255, calc(0.9 * var(--tc-opacity)));
+    background: rgba(20, 20, 30, 0.85);
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    color: #fff;
     font-weight: bold;
-    font-size: calc(18px * var(--tc-scale));
+    font-size: calc(26px * var(--tc-scale));
     touch-action: none;
+    z-index: 20;
 }
 
 #touch-controls.left-handed #tc-pause {

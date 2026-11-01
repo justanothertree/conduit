@@ -1,40 +1,3 @@
-#discord-section {
-    background-color: rgba(0, 0, 0, 0);
-    display: flex;
-    position: absolute;
-    top: 100px;
-    right: 0;
-    gap: 2px;
-    z-index: 4;
-    transform: translateX(calc(100% - 410px));
-    transition: transform 0.5s ease;
-}
-
-#discord-section.hidden {
-    transform: translateX(calc(100% - 60px));
-}
-
-/* On touch the widget iframe would cover the phone screen — shrink it so
-   the toggle-opened panel stays usable in portrait. */
-@media (pointer: coarse) {
-    #discord-section iframe {
-        width: 270px;
-        height: 380px;
-    }
-}
-
-#discordHideButton {
-    background-image: url(/assets/DiscordToggle.png);
-    background-size: cover;
-    width: 60px;
-    height: 50px;
-    background-color: black;
-    cursor: move;
-}
-
-#discordHideButton:hover {
-    background-color: white;
-}
 
 #chat-section {
     display: flex;
@@ -75,19 +38,4 @@
     width: 98%;
     background-color: rgba(0, 0, 0, 0.5);
     color: aliceblue;
-}
-
-/* --- Narrow phones: the discord panel (60px toggle + 350px iframe + gap =
-   412px) is wider than the viewport, so the opened panel is cut off at the
-   left. Shrink the iframe to fit and park the section flush right instead of
-   relying on the fixed 410px offset. The parked `.hidden` state still shows
-   just the 60px toggle tab, since its translateX rule is more specific. --- */
-@media (max-width: 411px) {
-    #discord-section iframe {
-        width: calc(100vw - 62px);
-    }
-
-    #discord-section {
-        transform: translateX(0);
-    }
 }

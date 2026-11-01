@@ -1,38 +1,10 @@
 import GameManager from "../things/GameManager";
-import { isTouchDevice } from "./TouchControls.js";
 
-
-const sec = document.getElementById("discord-section");
-export function setupDiscordWindow() {
-    const moveDiscordButton = document.getElementById("discordHideButton");
-
-    // On touch the 350px widget covers the whole phone screen — start
-    // collapsed (the toggle still opens it). Desktop keeps the 5s peek.
-    if (isTouchDevice()) {
-        sec.classList.add('hidden');
-    } else {
-        setTimeout(()=>sec.classList.toggle('hidden'), 5000);
-    }
-
-    moveDiscordButton.addEventListener('mousedown', (e) => {
-        e.stopPropagation();
-        document.getElementById('chatInput')?.blur();
-        moveDiscordButton.blur();
-        sec.classList.toggle('hidden');
-    })
-
-    // Touch mirror of the mousedown handler above (same pattern as the card
-    // toolbar and settings buttons): preventDefault suppresses the browser's
-    // synthesized mouse events, so a tap toggles the panel once, with no tap
-    // delay or scroll/zoom gesture. Desktop mouse behavior unchanged.
-    moveDiscordButton.addEventListener('touchstart', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        document.getElementById('chatInput')?.blur();
-        moveDiscordButton.blur();
-        sec.classList.toggle('hidden');
-    }, { passive: false });
-}
+// The Discord widget (iframe embed) was removed entirely — Yaya's call,
+// it blocked the screen on phones. This module now only carries the
+// chat -> Discord webhook. setupDiscordWindow is kept as a no-op export
+// so any lingering call sites don't break.
+export function setupDiscordWindow() {}
 
 
 export async function sendDiscordMessage(message) {

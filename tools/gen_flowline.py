@@ -3,7 +3,7 @@
 
 FLOWLINE is a movement-showcase level: a flowing left-to-right gauntlet
 with a safe route and a faster booster highway, a wall-jump canyon, a
-mini-boss arena, and a summit finish with a race timer. 12 shards are
+boss arena, and a summit finish with a race timer. 12 shards are
 hidden along the flow line, in secrets, and off the speed route.
 
 Movement calibration (read from the player code, not changed):
@@ -15,7 +15,7 @@ Layout (tiles, 32px; map is 160x100, y grows downward):
   B  Descent           x 26-58    platform hops over a lava pit, bats
   C  Wall canyon       x 74-94    wall-jump shaft, sunmen, secret alcove+portal
   D  Lava lake         x100-134   booster highway (speed) or top platforms (safe)
-  E  Mini-boss arena   x136-157   big duck, cover, risk/reward shards
+  E  Boss arena        x136-157   first real boss, cover, risk/reward shards
   F  Summit climb      x138-157   zigzag to the plateau, finish line
 
 Layers match the other maps: layer1, layer2 (background, left empty for
@@ -169,17 +169,18 @@ coin_line(104, 68, 120, 60, 6, float_=True)
 shard(126, 54)                           # flow-06: in the booster arc
 rect(walls, 128, 80, 136, 99, STONE)     # far shore
 
-# ---- E: mini-boss arena (enter over the left wall, exit up the right)
+# ---- E: boss arena (enter over the left wall, exit up the right)
 rect(walls, 136, 84, 157, 99, STONE)     # floor
 rect(walls, 136, 62, 137, 83, STONE)     # left wall
 rect(walls, 155, 70, 156, 83, STONE)     # right wall (short — climb out)
 platform(132, 58, 10)                    # entry platform (x132-141)
+add("spawnText", 134, 55, text="BOSS AHEAD")
 add("spawnDashBuff", 134, 54)
 for (px, py) in [(140, 74), (148, 74)]:
     platform(px, py, 4)                  # cover
 for (px, py) in [(152, 76), (152, 68)]:
     platform(px, py, 3)                  # exit ledges on the right wall
-add("spawnMiniBoss", 147, 78, props=[prop("health", "int", 150)])
+add("spawnBoss", 147, 78, props=[prop("health", "int", 500)])
 add("spawnDuck", 140, 80)
 add("spawnDuck", 152, 80)
 add("spawnSourceBlock", 142, 80)
@@ -251,7 +252,7 @@ print(f"wrote {out}: {len(objects)} objects, {_shard_n[0]} shards")
 errors = []
 names = {o["name"] for o in objects}
 KNOWN = {"spawnPlayer", "spawnCoin", "spawnDuck", "spawnBat", "spawnSunman",
-         "spawnMiniBoss", "spawnShard", "spawnCard", "spawnBooster",
+         "spawnBoss", "spawnShard", "spawnCard", "spawnBooster",
          "spawnDashBuff", "spawnPortal", "spawnSourceBlock", "spawnFinishLine",
          "spawnText"}
 for n in names - KNOWN:
@@ -260,7 +261,7 @@ for o in objects:
     if not (0 <= o["x"] < W * 32 and 0 <= o["y"] < H * 32):
         errors.append(f"object out of bounds: {o['name']} at {o['x']},{o['y']}")
     # solid-ground check: enemies/pickups should not spawn inside walls
-    if o["name"] in ("spawnDuck", "spawnSunman", "spawnMiniBoss",
+    if o["name"] in ("spawnDuck", "spawnSunman", "spawnBoss",
                      "spawnPlayer", "spawnSourceBlock"):
         tx, ty = int(o["x"] // 32), int(o["y"] // 32)
         if walls[ty * W + tx] != 0:
@@ -272,7 +273,7 @@ if len(ids) != 12 or len(set(ids)) != 12:
 counts = {}
 for o in objects:
     counts[o["name"]] = counts.get(o["name"], 0) + 1
-for req in ["spawnPlayer", "spawnFinishLine", "spawnMiniBoss"]:
+for req in ["spawnPlayer", "spawnFinishLine", "spawnBoss"]:
     if counts.get(req, 0) != 1:
         errors.append(f"expected 1 {req}, got {counts.get(req, 0)}")
 print("object counts:", sorted(counts.items()))
