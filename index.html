@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Conduit</title>
   <meta name="robots" content="index, follow">
   <meta name="description" content="Conduit is a fast-paced indie 2D platformer with deep movement mechanics, 
@@ -71,6 +71,16 @@
       position: relative;
       overflow: hidden;
       touch-action: none;
+    }
+
+    /* Page zoom (pinch / double-tap) breaks the fixed-position touch UI,
+       so it's disabled at the page level — Yaya's call. pan-x pan-y keeps
+       pinch-zoom and double-tap zoom off while preserving vertical page
+       scroll (the card grid below the game). iOS Safari ignores
+       user-scalable=no, so the gesturestart handler in main.js is what
+       actually stops pinch-zoom there. */
+    html, body {
+      touch-action: pan-x pan-y;
     }
 
     #icon-section {

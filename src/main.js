@@ -84,4 +84,14 @@ window.addEventListener('keydown', function (e) {
   }
 });
 
+// Pinch-zoom breaks the fixed-position touch UI, so it's killed here.
+// iOS Safari ignores user-scalable=no in the viewport meta — the
+// gesturestart/gesturechange prevention is what actually stops it there.
+// Trackpad pinch-zoom on desktop arrives as ctrl+wheel.
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+document.addEventListener('gesturechange', (e) => e.preventDefault());
+document.addEventListener('wheel', (e) => {
+  if (e.ctrlKey) e.preventDefault();
+}, { passive: false });
+
 setupChat();
