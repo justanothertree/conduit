@@ -502,7 +502,6 @@ export default class BaseGame extends Phaser.Scene {
           const board = new ScoreBoard(this, x + 135, y - 125, obj.scores);
           this.add.existing(board);
           this.scoreBoard[obj.level] = board;
-          console.log('Scoreboard updated for level:', obj.level);
           break;
         default:
           break;

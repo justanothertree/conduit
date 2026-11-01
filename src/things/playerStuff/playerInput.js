@@ -33,6 +33,12 @@ export function playerGetInput(player) {
     const touchCrouch = !!document.crouchButton?.isClicked;
     const touchSlam = touchCrouch && !player._prevTouchCrouch;
     player._prevTouchCrouch = touchCrouch;
+    // DOM panels (inventory, shard shop) pause all game input while open —
+    // keyboard and touch alike. The touch overlay is also hidden via
+    // updateOverlayBlock; this covers the keyboard side.
+    if (document.getElementById('inventory-panel') || document.getElementById('shard-shop')) {
+        return { left: false, right: false, jump: false, dash: false, crouch: false, heal: false, slam: false };
+    }
     return {
         left: player.controls.left.isDown || document.leftButton.isClicked,
         right: player.controls.right.isDown || document.rightButton.isClicked,

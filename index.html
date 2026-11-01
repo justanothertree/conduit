@@ -262,15 +262,9 @@
       }
     }
 
-    /* Same safe-area treatment for the keyboard grid (id set in
-       KeyBinds.js). The left side keeps the .kb-grid 5% offset and adds
-       the inset on top of it. */
-    #keyboard-grid {
-      padding-top: env(safe-area-inset-top);
-      padding-right: env(safe-area-inset-right);
-      padding-bottom: env(safe-area-inset-bottom);
-      padding-left: calc(5% + env(safe-area-inset-left));
-    }
+    /* (The old #keyboard-grid safe-area padding was removed 2026-11-01:
+       the grid is display:none on touch phones, so the 480px media-query
+       rule never applied to a visible element — dead CSS.) */
   </style>
 </head>
 

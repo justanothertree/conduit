@@ -155,11 +155,19 @@ export function openShardShop(player) {
         </div>`;
     document.body.appendChild(root);
     root.querySelector('.ss-close').onclick = closeShardShop;
+    root.querySelector('.ss-backdrop').onclick = closeShardShop;
+    // Esc closes the shop, like the inventory panel.
+    document.addEventListener('keydown', escCloseShop);
     render(player);
+}
+
+function escCloseShop(e) {
+    if (e.code === 'Escape') closeShardShop();
 }
 
 export function closeShardShop() {
     document.getElementById('shard-shop')?.remove();
+    document.removeEventListener('keydown', escCloseShop);
 }
 
 // The keeper: a bobbing cyan shard crystal near the devil shop in Home.

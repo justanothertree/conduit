@@ -90,8 +90,11 @@ window.addEventListener('keydown', function (e) {
 // Trackpad pinch-zoom on desktop arrives as ctrl+wheel.
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('gesturechange', (e) => e.preventDefault());
+// Trackpad pinch-zoom (ctrl+wheel) is only blocked inside the game canvas —
+// blocking it document-wide kills desktop browser zoom, which users expect
+// to keep working on the rest of the page.
 document.addEventListener('wheel', (e) => {
-  if (e.ctrlKey) e.preventDefault();
+  if (e.ctrlKey && e.target.closest?.('#conduit-game')) e.preventDefault();
 }, { passive: false });
 
 setupChat();

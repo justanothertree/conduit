@@ -49,7 +49,11 @@ export default class PlayerUI extends Phaser.Scene {
         this.playerTextMap = {}; // Object to hold playerId => textObject
 
         this.setWeaponIcon(this.player.leftWeapon.name, 0);
-        this.setWeaponIcon(this.player.rightWeapon.name, 1);
+        // Slot 2 can be empty — same null class as the WHIP/pointer fixes
+        // (Player.js guards this.rightWeapon in its hot paths).
+        if (this.player.rightWeapon) {
+            this.setWeaponIcon(this.player.rightWeapon.name, 1);
+        }
 
         this.leftWeaponBox = this.add.graphics().setDepth(1);
         this.rightWeaponBox = this.add.graphics().setDepth(1);
@@ -184,9 +188,10 @@ export default class PlayerUI extends Phaser.Scene {
     cooldownRed(left) {
         const weaponBox = left ? this.leftWeaponBox : this.rightWeaponBox;
         const weaponIcon = left ? this.leftWeaponIcon : this.rightWeaponIcon;
-        const cdProgress = left ? this.player.leftWeapon.cdProgress : this.player.rightWeapon.cdProgress;
-
-        if (!weaponIcon) return;
+        // Slot 2 can be empty; this runs every frame, so guard before touching.
+        const weapon = left ? this.player.leftWeapon : this.player.rightWeapon;
+        if (!weaponIcon || !weapon) return;
+        const cdProgress = weapon.cdProgress;
         if (cdProgress > .95) {
             weaponBox.clear();
             return;

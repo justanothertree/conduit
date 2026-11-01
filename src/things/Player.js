@@ -141,11 +141,15 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             this.spectatePlayer(true, 1);
         });
 
+        // (Null guards: a tap reaching the canvas with no weapon equipped
+        // used to throw on release() and freeze the game — same class as
+        // the WHIP null-fire freeze. Touch taps on uncovered canvas areas
+        // report leftButtonReleased, so this runs on phones too.)
         this.scene.input.on('pointerup', (pointer) => {
             if (pointer.leftButtonReleased()) {
-                this.leftWeapon.release();
+                this.leftWeapon?.release();
             } else if (pointer.rightButtonReleased()) {
-                this.rightWeapon.release();
+                this.rightWeapon?.release();
             }
         });
 
@@ -191,10 +195,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         if (this.playerContainer) this.playerContainer.setPosition(this.x, this.y);
 
         if (this.alive && !this.stunned) {
-            if (!this.leftWeapon) return;
-            if (!this.rightWeapon) return;
-            this.leftWeapon.update?.(delta);
-            this.rightWeapon.update?.(delta);
+            // Each weapon slot updates/fires independently: a null slot
+            // (e.g. no Slot 2 equipped) must not disable the other slot's
+            // input, the aura, or the out-of-world death check below.
+            this.leftWeapon?.update?.(delta);
+            this.rightWeapon?.update?.(delta);
             if (this.aura) this.aura.update?.(delta);
 
             if (this.y > this.scene.physics.world.bounds.height + this.body.height + 150 && this.alive && !this.spawnBuffer) {
@@ -202,9 +207,14 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             }
 
             if (this.currentState === 'meditate') return;
+            // Declared before its first use: referencing it earlier throws
+            // a temporal-dead-zone ReferenceError on any canvas tap/click
+            // (leftButtonDown true) and kills the game loop — the right-half
+            // touch freeze Yaya reported 2026-11-01.
+            const invOpen = this.inventory?.isPanelOpen?.() ?? false;
             const pointer = this.scene.input.activePointer;
 
-            if (pointer.leftButtonDown() && !invOpen) {
+            if (pointer.leftButtonDown() && !invOpen && this.leftWeapon) {
                 this.leftWeapon.fire(pointer);
                 this.meditateTimer = 0;
             }
@@ -216,8 +226,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             // point (nearest enemy, else facing direction). Desktop mouse
             // path above is unchanged; this only maps touch input onto the
             // existing fire action.
-            const invOpen = this.inventory?.isPanelOpen?.() ?? false;
-            if (document.attackButton?.isClicked && !invOpen) {
+            if (document.attackButton?.isClicked && !invOpen && this.leftWeapon) {
                 this.leftWeapon.fire(getTouchAimPointer(this));
                 this.meditateTimer = 0;
             }
@@ -329,8 +338,10 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         // this.scene.setupRaceTimer();
         // this.spectatePlayer(false);
         // this.scene.physics?.resume();
-        this.leftWeapon.release();
-        this.rightWeapon.release();
+        // (Null guards: dying with an empty weapon slot used to throw here
+        // and freeze the game — same class as the WHIP null-fire freeze.)
+        this.leftWeapon?.release();
+        this.rightWeapon?.release();
         this.setVelocity(0, 0);
         GameManager.useLastLocation = false;
         // Respawn at full derived max HP (was hardcoded 25, ignoring

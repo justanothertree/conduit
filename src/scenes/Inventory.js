@@ -93,13 +93,16 @@ export default class Inventory extends Phaser.Scene {
             GameManager.power.spent += realCost;
             apply(this);
 
-            if (disables) {
-                // disables handled visually by the panel re-render
-            }
-
-            this.player.leftWeapon.setStats();
-            this.player.rightWeapon.setStats();
-            this.player.aura.setStats();
+            // (This block referenced an undeclared `disables` and threw a
+            // ReferenceError on every successful purchase — money was taken
+            // and the upgrade applied, but setStats/save/return were skipped
+            // and the panel never re-rendered. Removed: either/or disabling
+            // is already enforced by `blocked` above and rendered dimmed in
+            // inventoryPanel.js.)
+            // Slot 2 can be empty — same null class as the WHIP/pointer fixes.
+            this.player.leftWeapon?.setStats();
+            this.player.rightWeapon?.setStats();
+            this.player.aura?.setStats();
 
             this.sound.play('pickup');
             GameManager.save();
