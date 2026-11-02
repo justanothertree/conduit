@@ -10,6 +10,9 @@ import Pickup from "./Pickup";
 export default class Shard extends Pickup {
     constructor(scene, x, y, obj) {
         super(scene, x, y, 'coin');
+        // Floating pickup — gravity would drag it off its hover tween.
+        // Same convention as float coins (SpawnManager.spawnCoin).
+        this.body.allowGravity = false;
         const props = getProperty(obj);
         this.shardId = props?.id ?? `flow-${Math.round(x)}-${Math.round(y)}`;
         this.setTint(0x00ffff);

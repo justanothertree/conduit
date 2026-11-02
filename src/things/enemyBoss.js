@@ -1,5 +1,6 @@
 import BaseEnemy from "./_baseEnemy.js";
 import Bullet from "./bullet.js";
+import GameManager from "./GameManager.js";
 
 // FLOWLINE's first real boss — a bigger, meaner duck holding the arena at
 // the end of Flowline, replacing the old scaled-duck mini-boss.
@@ -45,6 +46,7 @@ export default class Boss extends BaseEnemy {
         this.patrol(time);       // inherited ground patrol (uses phase speed)
         this.facePlayer();
         this.tickAttacks();
+        this.updateBossBarVisibility();
     }
 
     // Face the player without touching patrol's speed logic.
@@ -65,8 +67,27 @@ export default class Boss extends BaseEnemy {
         this.speed = 160;
         this.nextFireball = this.scene.time.now + 1500; // a beat before it starts
         this.nextLeap = this.scene.time.now + 4000;
-        this.scene.player?.playerUI?.showBossBar(this);
+        // Bar visibility is distance-gated in updateBossBarVisibility (called
+        // from preUpdate) — the fight stays live outside 900px, only the bar
+        // shows/hides.
+        this.barVisible = false;
         return true;
+    }
+
+    // Show the big purple HP bar only while the player is within ~900px of
+    // the boss. Guarded by barVisible so show/hide aren't called every frame
+    // (showBossBar rebuilds the bar objects).
+    updateBossBarVisibility() {
+        const ui = this.scene.player?.playerUI;
+        if (!ui) return;
+        const close = this.player && this.distanceToPlayer() < 900;
+        if (close && !this.barVisible) {
+            ui.showBossBar(this);
+            this.barVisible = true;
+        } else if (!close && this.barVisible) {
+            ui.hideBossBar();
+            this.barVisible = false;
+        }
     }
 
     updatePhase() {
@@ -140,11 +161,22 @@ export default class Boss extends BaseEnemy {
     }
 
     die(player) {
+        // Boss bounty: full 500 only on the first kill of the save (one-time
+        // flag, mirroring flags.flowComplete); repeat kills pay a 50-money
+        // consolation. player.updateMoney calls GameManager.save(), so the
+        // flag persists with the payout.
+        const reward = GameManager.flags.bossRewardPaid ? 50 : 500;
+        GameManager.flags.bossRewardPaid = true;
         this.scene.player?.playerUI?.hideBossBar();
-        super.die(player);
+        this.barVisible = false;
+        this.dead = true;
+        player.updateMoney(reward);
+        this.emit('die', player);
+        this.deactivate();
     }
 
     deactivate() {
+        this.barVisible = false;
         this.scene?.player?.playerUI?.hideBossBar();
         super.deactivate();
     }

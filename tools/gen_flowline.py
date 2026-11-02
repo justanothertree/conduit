@@ -11,15 +11,16 @@ Movement calibration (read from the player code, not changed):
   Design rule: vertical steps <= 3 tiles, horizontal gaps <= 6 (dashable).
 
 Layout (tiles, 32px; map is 160x100, y grows downward):
-  A  Start meadow      x  2-24    spawn, sign, first shard, secret staircase
-  B  Descent           x 26-58    platform hops over a lava pit, bats
-  C  Wall canyon       x 74-94    wall-jump shaft, sunmen, secret alcove+portal
-  D  Lava lake         x100-134   booster highway (speed) or top platforms (safe)
-  E  Boss arena        x136-157   first real boss, cover, risk/reward shards
+  A  Start meadow      x  2-24    spawn, sign, first shard, secret staircase, charger
+  B  Descent           x 26-58    platform hops over a lava pit, bats, turret guarding the exit
+  C  Wall canyon       x 74-94    wall-jump shaft, sunmen, secret alcove+portal, turret on exit, charger on floor
+  D  Lava lake         x100-134   booster highway (speed) or top platforms (safe), turret on safe route
+  E  Boss arena        x136-157   first real boss, cover, risk/reward shards, charger on entry platform
   F  Summit climb      x138-157   zigzag to the plateau, finish line
 
-Layers match the other maps: layer1, layer2 (background, left empty for
-the sky), objects, walls (stone 157, collides), walls2 (lava 329/330,
+Layers match the other maps: layer1, layer2 (background — sparse cave-rock
+speckle and foreground accents in Krazay17's tilemap2 style, never colliding),
+objects, walls (stone 157, collides), walls2 (lava 329/330,
 fire damage). Tileset "tilesheet" (32px tiles).
 """
 import json
@@ -204,6 +205,89 @@ shard(152, 50)                           # flow-10: the climb
 shard(146, 36)                           # flow-11: summit
 shard(155, 36)                           # flow-12: summit edge
 
+# ================================================================ new enemies
+# Turrets guard chokepoints (stationary, telegraph then fire aimed fireballs).
+# Chargers roam open platforms (patrol, then telegraph and dash at the
+# player, shielded from the front while walking). Kept clear of the boss
+# arena, shard positions, spawn point, and portals. Turrets sit on top of
+# the named platform: TurretPlatform.png is 135px tall, so ty puts the
+# sprite base ~on the platform top.
+add("spawnTurret", 54, 65)               # guards the descent exit, on platform (52,69)
+add("spawnTurret", 95, 44)               # guards the canyon exit platform (92,48)
+add("spawnTurret", 118, 49)              # guards the safe route, on platform (116,53)
+add("spawnCharger", 16, 80)              # open meadow floor
+add("spawnCharger", 70, 78)              # canyon floor
+add("spawnCharger", 138, 56)             # boss entry platform (132,58)
+
+# ================================================================ decoration
+# layer1/layer2 are pure background: setupTileMap only ever collides
+# walls/walls2, so tiles here can't affect gameplay, collision, or spawns.
+# Style follows Krazay17's tilemap2 — dark cave-speckle noise on layer1,
+# sparse foreground accents (grass, pots, braziers) on layer2. All gids
+# below already exist in the tileset. The nebula sky stays dominant:
+# speckle is sparse clusters, not a full fill.
+import random
+rng = random.Random(20261101)  # deterministic — regen is byte-identical
+
+SPECKLE = [783, 788, 815, 816, 817, 818, 845, 846]  # dark cave rock
+reserved = {(o["x"] // 32, o["y"] // 32) for o in objects}
+
+
+def open_air(x, y):
+    return (0 <= x < W and 0 <= y < H
+            and walls[y * W + x] == 0 and walls2[y * W + x] == 0
+            and (x, y) not in reserved)
+
+
+def speckle(x0, y0, x1, y1, density):
+    for y in range(y0, y1 + 1):
+        for x in range(x0, x1 + 1):
+            if open_air(x, y) and rng.random() < density:
+                set_tile(layer1, x, y, rng.choice(SPECKLE))
+
+
+# distant dark rock behind the open areas
+speckle(76, 49, 91, 78, 0.10)     # canyon shaft interior
+speckle(26, 84, 58, 95, 0.08)     # above the lava pit
+speckle(100, 60, 134, 88, 0.05)   # lava lake backdrop
+speckle(138, 63, 154, 82, 0.08)   # boss arena backdrop
+speckle(142, 28, 157, 38, 0.06)   # summit cliff backdrop
+
+
+def accent(x, y, gid):
+    if open_air(x, y):
+        set_tile(layer2, x, y, gid)
+
+
+BRAZIER, POT, BUSH, MOSS = 241, 274, 465, 218
+TUFTS = [43, 44, 73, 74]  # grass tufts / flowering plants
+
+# hanging braziers: canyon shaft, arena mouth, summit
+for (x, y) in [(84, 55), (82, 66), (140, 66), (150, 33)]:
+    accent(x, y, BRAZIER)
+
+# pots on the ground / platform tops
+for (x, y) in [(6, 81), (22, 81), (70, 79), (139, 83), (154, 83), (156, 39)]:
+    accent(x, y, POT)
+
+# grass tufts along the meadow, canyon floor, summit plateau
+for (x, y) in [(3, 81), (9, 81), (13, 81), (17, 81), (23, 81),
+               (60, 79), (66, 79), (72, 79),
+               (143, 39), (147, 39), (151, 39)]:
+    accent(x, y, rng.choice(TUFTS))
+
+# moss on stone platform tops
+for (x, y) in [(30, 77), (38, 74), (46, 71),        # descent platforms
+               (113, 77), (121, 73),                # booster pillars
+               (141, 73), (149, 73), (153, 75)]:    # arena cover + exit ledge
+    accent(x, y, MOSS)
+
+# bush at the meadow edge, tech blocks by the first booster (machinery)
+accent(24, 81, BUSH)
+accent(138, 83, BUSH)
+accent(101, 60, 72)
+accent(102, 60, 189)
+
 # ================================================================ assemble
 layers = []
 lid = [1]
@@ -254,7 +338,7 @@ names = {o["name"] for o in objects}
 KNOWN = {"spawnPlayer", "spawnCoin", "spawnDuck", "spawnBat", "spawnSunman",
          "spawnBoss", "spawnShard", "spawnCard", "spawnBooster",
          "spawnDashBuff", "spawnPortal", "spawnSourceBlock", "spawnFinishLine",
-         "spawnText"}
+         "spawnText", "spawnTurret", "spawnCharger"}
 for n in names - KNOWN:
     errors.append(f"unknown spawn name: {n}")
 for o in objects:
@@ -276,6 +360,17 @@ for o in objects:
 for req in ["spawnPlayer", "spawnFinishLine", "spawnBoss"]:
     if counts.get(req, 0) != 1:
         errors.append(f"expected 1 {req}, got {counts.get(req, 0)}")
+for name, want in [("spawnTurret", 3), ("spawnCharger", 3)]:
+    if counts.get(name, 0) != want:
+        errors.append(f"expected {want} {name}, got {counts.get(name, 0)}")
+# new enemies must not share a tile with any pre-existing object
+new_tiles = [(o["name"], o["x"] // 32, o["y"] // 32)
+             for o in objects if o["name"] in ("spawnTurret", "spawnCharger")]
+other_tiles = {(o["x"] // 32, o["y"] // 32)
+               for o in objects if o["name"] not in ("spawnTurret", "spawnCharger")}
+for name, tx, ty in new_tiles:
+    if (tx, ty) in other_tiles:
+        errors.append(f"{name} overlaps an existing object at tile {tx},{ty}")
 print("object counts:", sorted(counts.items()))
 if errors:
     print("ERRORS:")

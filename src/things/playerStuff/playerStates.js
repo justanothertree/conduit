@@ -3,6 +3,8 @@
 // method was the player, so it is now spelled `player`. The state driver
 // (handleInput/decideState/setState/getInput) still lives on Player.
 
+import { ensureSocketConnected } from "./playerNetwork.js";
+
 export function setupPlayerStates(player) {
         player.stateLockout = 0;
         player.currentState = 'idle';
@@ -74,9 +76,10 @@ export function setupPlayerStates(player) {
                     player.tryUncrouch();
                     player.isSlamming = 0;
                     player.isWalking = true;
-                    if (!player.network.socket.connected) {
-                        player.network.socket.connect();
-                    }
+                    // Network only — one guarded connection attempt, never a
+                    // connect() on every step. (Multiplayer is on hold; the
+                    // server rejects us.)
+                    ensureSocketConnected(player);
                 },
                 update: (delta, input) => {
                     const { left, right } = input;

@@ -3,16 +3,31 @@
 
 import GameManager from "../GameManager.js";
 
+// Client-side connect guard (multiplayer is on hold; the server rejects us).
+// socket.io v4 exposes no public "connecting" flag, so we track a manual
+// connect() already in flight ourselves. Per-move callers (walk-state enter,
+// syncNetwork) may ask for a connection every frame — this fires connect()
+// at most once per disconnect instead.
+export function ensureSocketConnected(player) {
+    const socket = player.network?.socket;
+    if (!socket || socket.connected || player.network._connectRequested) return;
+    player.network._connectRequested = true;
+    socket.once('connect', () => { player.network._connectRequested = false; });
+    socket.connect();
+}
+
 export function playerSyncNetwork(player) {
     if (player.tryingToSync) return;
     player.tryingToSync = true;
     setTimeout(() => player.tryingToSync = false, 500);
 
-    if (!player.network.socket.connected && !player.network.socket.reconnecting) {
-        player.network.socket.connect();
-    }
+    ensureSocketConnected(player);
 
-    player.network.socket.emit('playerSyncRequest', {
+    // Volatile: a sync request is fire-and-forget state sync. While the
+    // server rejects us / the transport is down it is dropped instead of
+    // piling up in socket.io's outbound buffer. The 500ms throttle above
+    // retries naturally once we're connected again.
+    player.network.socket.volatile.emit('playerSyncRequest', {
         data: {
             location: GameManager.location,
             name: GameManager.name,
@@ -48,7 +63,9 @@ export function playerSyncGhost(player, delta, state) {
 
     player.lastSentState = { ...state };
 
-    player.network.socket.emit('playerStateRequest', state);
+    // Volatile: ghost state is superseded by the next frame, so it must be
+    // dropped — not buffered — when the transport can't deliver.
+    player.network.socket.volatile.emit('playerStateRequest', state);
 }
 
 export function playerSpectatePlayer(player, spectate, index) {

@@ -1,8 +1,10 @@
-import Enemy from "./_baseEnemy.js";
+import BaseEnemy from "./_baseEnemy.js";
 import Bullet from "./bullet.js"
 import Duck from "./enemyDuck.js"
 import Bat from "./enemyBat.js"
 import Boss from "./enemyBoss.js"
+import Turret from "./enemyTurret.js"
+import Charger from "./enemyCharger.js"
 import SunMan from "./enemySunman.js";
 import Coin from "./coin.js";
 import Booster from "./booster.js";
@@ -42,6 +44,14 @@ export default class SpawnManager {
         this.bossGroup = this.scene.physics.add.group({
             classType: Boss,
         });
+        this.turretGroup = this.scene.physics.add.group({
+            classType: Turret,
+            allowGravity: false,
+            immovable: true,
+        });
+        this.chargerGroup = this.scene.physics.add.group({
+            classType: Charger,
+        });
         this.bulletGroup = this.scene.physics.add.group({ allowGravity: false });
         this.softBulletGroup = this.scene.physics.add.group({ allowGravity: false });
         this.itemGroup = this.scene.physics.add.group();
@@ -59,6 +69,8 @@ export default class SpawnManager {
             { group: this.sunmanGroup, handler: 'enemyHit', zap: true, walls: false },
             { group: this.duckGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.bossGroup, handler: 'enemyHit', zap: true, walls: true },
+            { group: this.turretGroup, handler: 'enemyHit', zap: true, walls: true },
+            { group: this.chargerGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.bulletGroup, handler: 'bulletHit', zap: false, walls: false },
             { group: this.softBulletGroup, handler: 'bulletHit', zap: false, walls: false },
             { group: this.itemGroup, handler: 'itemHit', zap: false, walls: true },
@@ -189,24 +201,41 @@ export default class SpawnManager {
         block.play('box')
     }
 
-    spawnTurret(x, y) {
-        const turret = new Enemy(this.scene, x, y, 'turret', 10);
-        this.sunmanGroup.add(turret)
-        turret.body.allowGravity = false;
-        turret.setVelocityY(50);
-        turret.setBounce(1);
-        turret.setCollideWorldBounds(true);
+    // Flowline ranged turret: stationary emplacement that fires aimed
+    // fireballs on a timer (Turret class). Pooled like the bat. Replaces the
+    // old ad-hoc spawnTurret, which was never called from any tilemap.
+    spawnTurret(x, y, obj, health = 25, isRemote = false, id = null) {
+        const props = getProperty(obj);
+        health = props?.health ?? health;
+        let turret = this.turretGroup.getFirst(false);
 
-        const originalDie = turret.die.bind(turret);
-        turret.die = (player) => {
-            originalDie(player);
-
-            this.scene.time.addEvent({
-                delay: 5000,
-                callback: () => this.spawnTurret(x, y)
-            });
-        };
+        if (turret && turret.activate(x, y, health)) {
+            turret.init();
+            return turret;
+        }
+        // Create new if no usable turret
+        turret = new Turret(this.scene, x, y, health);
+        this.turretGroup.add(turret);
+        turret.init();
         return turret;
+    }
+
+    // Flowline shielded charger: armored duck that dashes at the player
+    // (Charger class). Pooled like the bat.
+    spawnCharger(x, y, obj, health = 30, isRemote = false, id = null) {
+        const props = getProperty(obj);
+        health = props?.health ?? health;
+        let charger = this.chargerGroup.getFirst(false);
+
+        if (charger && charger.activate(x, y, health)) {
+            charger.init();
+            return charger;
+        }
+        // Create new if no usable charger
+        charger = new Charger(this.scene, x, y, health);
+        this.chargerGroup.add(charger);
+        charger.init();
+        return charger;
     }
 
     spawnBullets(x, y, amount) {

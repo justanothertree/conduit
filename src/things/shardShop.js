@@ -162,7 +162,12 @@ export function openShardShop(player) {
 }
 
 function escCloseShop(e) {
-    if (e.code === 'Escape') closeShardShop();
+    if (e.code === 'Escape') {
+        // Stop the key here so it doesn't bubble up to Phaser's
+        // keydown-ESC listener in EscMenu and toggle Settings too.
+        e.stopPropagation();
+        closeShardShop();
+    }
 }
 
 export function closeShardShop() {

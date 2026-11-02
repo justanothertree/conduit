@@ -1,6 +1,45 @@
 import GameManager from "../things/GameManager.js";
 import NetworkManager from "../things/NetworkManager.js";
 import { getRank } from "../things/RankSystem.js";
+import { isTouchDevice } from "../domStuff/TouchControls.js";
+
+// Reads env(safe-area-inset-left) — 0 on devices without a notch. The
+// Phaser canvas is full-bleed (viewport-fit=cover), so the left HUD
+// column (score / shard counter / health bar) can sit under a landscape
+// notch. Cached; resetSafeAreaCache() runs on resize since rotating the
+// phone changes which edge has the inset.
+let _safeLeftCache = null;
+export function safeAreaLeft() {
+    if (_safeLeftCache !== null) return _safeLeftCache;
+    let v = 0;
+    try {
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;pointer-events:none;';
+        // Unsupported browsers ignore the env() assignment and keep left:0.
+        probe.style.left = 'env(safe-area-inset-left, 0px)';
+        document.body.appendChild(probe);
+        v = probe.getBoundingClientRect().left || 0;
+        probe.remove();
+    } catch { v = 0; }
+    _safeLeftCache = v;
+    return v;
+}
+function resetSafeAreaCache() {
+    _safeLeftCache = null;
+}
+
+// Height of the touch action-button cluster (#tc-actions in
+// touchControls.css: 190px tall, 16px off the bottom, scaled by the touch
+// Size setting) plus a margin. Used to lift the Slot 2 weapon icon above
+// the buttons on touch devices; 0 on desktop.
+function touchClusterLift() {
+    if (!isTouchDevice()) return 0;
+    let size = 1;
+    try {
+        size = JSON.parse(localStorage.getItem('conduitTouchSettings') || '{}').size || 1;
+    } catch { /* default */ }
+    return Math.ceil(16 + 190 * size) + 8;
+}
 
 export default class PlayerUI extends Phaser.Scene {
     constructor() {
@@ -37,6 +76,10 @@ export default class PlayerUI extends Phaser.Scene {
         this.player.on('moneyChanged', this._moneyHandler);
         // A leftover boss bar from a previous level must not survive a restart.
         this.hideBossBar();
+        // Same for the shard HUD: shard levels rebuild it below, other
+        // levels show nothing.
+        this.hideShardHud();
+        this.setupShardHud();
     }
 
     create() {
@@ -76,7 +119,7 @@ export default class PlayerUI extends Phaser.Scene {
             }
         });
 
-        this.scoreText = this.add.text(10, 50, 'Source: ' + GameManager.power.money + '\n' + getRank(GameManager.power.money), {
+        this.scoreText = this.add.text(this.hudLeft() + 10, 50, 'Source: ' + GameManager.power.money + '\n' + getRank(GameManager.power.money), {
             fontSize: '32px',
             color: '#4fffff'
         });
@@ -108,15 +151,39 @@ export default class PlayerUI extends Phaser.Scene {
 
     }
 
+    // Left HUD column x offset: score text, shard counter, and health
+    // bar all clear a landscape notch via the safe-area probe. 0 on
+    // notch-less devices, so Josh's layout is unchanged there.
+    hudLeft() {
+        return safeAreaLeft();
+    }
+
     // ---- Boss HP bar: big, top-center, only visible while a boss fight is
     // live. The boss calls showBossBar on activate and hideBossBar on
     // death/deactivate; update() keeps the fill current and drops the bar
     // if the boss is gone.
+    //
+    // Narrow screens: the 60px touch pause button sits top-right, so the
+    // bar centers in the space left of it instead of true center (where
+    // it would render underneath the button). Desktop widths keep cx at
+    // true center — unchanged.
+    bossBarCx() {
+        const w = this.scale.width;
+        return w < 520 ? (w - 84) / 2 : w / 2;
+    }
+
+    bossBarW() {
+        const w = this.scale.width;
+        // Narrow: the bar must fit left of the pause button, not just
+        // centered clear of it — otherwise it overflows the left edge.
+        return Math.min(600, w < 520 ? w - 84 : w - 40);
+    }
+
     showBossBar(boss) {
         this.hideBossBar();
         this._boss = boss;
-        const w = Math.min(600, this.scale.width - 40);
-        const cx = this.scale.width / 2;
+        const w = this.bossBarW();
+        const cx = this.bossBarCx();
         this.bossBarBg = this.add.rectangle(cx, 28, w, 22, 0x000000, 0.7)
             .setScrollFactor(0).setDepth(1000);
         this.bossBar = this.add.rectangle(cx - (w - 4) / 2, 28, w - 4, 16, 0xcc22cc, 1)
@@ -151,21 +218,91 @@ export default class PlayerUI extends Phaser.Scene {
         this.bossText = null;
     }
 
+    // ---- Shard counter + completion banner (Flowline). Levels with
+    // collectible shards set `shardTotal` and `flowShardsFound()` on the
+    // game scene (LevelFlow does); every other level shows nothing. The
+    // data model is untouched — counts still come from
+    // GameManager.collectedItems.
+    setupShardHud() {
+        const gs = this.gameScene;
+        this.shardTotal = gs?.shardTotal ?? 0;
+        if (!this.shardTotal) return;
+        const found = gs.flowShardsFound?.() ?? 0;
+        // Left HUD column under the score text, inside a phone-safe margin;
+        // "◆ 12/12" at 22px is ~100px wide, fits a 360px screen. The x
+        // clears a landscape notch via hudLeft() (0 on notch-less devices).
+        this.shardText = this.add.text(this.hudLeft() + 12, 132, `◆ ${found}/${this.shardTotal}`, {
+            fontSize: '22px',
+            color: '#00ffff',
+            fontStyle: 'bold',
+            stroke: '#003333',
+            strokeThickness: 4,
+        }).setScrollFactor(0).setDepth(1000);
+    }
+
+    updateShardHud() {
+        if (!this.shardText) return;
+        const found = this.gameScene?.flowShardsFound?.() ?? 0;
+        this.shardText.setText(`◆ ${found}/${this.shardTotal}`);
+    }
+
+    hideShardHud() {
+        this.shardText?.destroy();
+        this.shardText = null;
+        this.shardBanner?.destroy();
+        this.shardBanner = null;
+        this.shardTotal = 0;
+    }
+
+    // "FLOWLINE COMPLETE!" — centered (clear of notch/cutout edges), sized
+    // to fit a 360px phone, fades out after a few seconds.
+    showShardBanner() {
+        this.shardBanner?.destroy();
+        const w = this.scale.width, h = this.scale.height;
+        const size = Math.max(20, Math.min(36, Math.floor(w / 12)));
+        this.shardBanner = this.add.text(w / 2, h * 0.35, 'FLOWLINE COMPLETE!', {
+            fontSize: `${size}px`,
+            color: '#ffff00',
+            fontStyle: 'bold',
+            stroke: '#000000',
+            strokeThickness: 6,
+        }).setOrigin(.5).setScrollFactor(0).setDepth(1001);
+        this.tweens.add({
+            targets: this.shardBanner,
+            alpha: 0,
+            delay: 2500,
+            duration: 900,
+            onComplete: () => {
+                this.shardBanner?.destroy();
+                this.shardBanner = null;
+            },
+        });
+    }
+
     resizeUI(gamesize) {
         const { width, height } = gamesize;
+        // Rotation can move the notch to a different edge — recompute.
+        resetSafeAreaCache();
+        if (this.scoreText) this.scoreText.x = this.hudLeft() + 10;
+        if (this.shardText) this.shardText.x = this.hudLeft() + 12;
+        if (this.healthBg) this.healthBg.x = this.hudLeft();
+        if (this.healthBox) this.healthBox.x = this.hudLeft();
         if (!this.leftWeaponBox || !this.leftWeaponIcon || !this.rightWeaponBox || !this.rightWeaponIcon) return;
         this.leftWeaponBox.y = height;
         this.leftWeaponIcon.y = height;
         this.rightWeaponBox.x = width;
-        this.rightWeaponBox.y = height;
+        // Touch: the Slot 2 icon lives above the action-button cluster
+        // (see touchClusterLift); desktop keeps it bottom-right.
+        this.rightWeaponBox.y = height - touchClusterLift();
         this.rightWeaponIcon.x = width;
-        this.rightWeaponIcon.y = height;
+        this.rightWeaponIcon.y = height - touchClusterLift();
         this.textBoxX = width / 2;
         this.textBoxY = height / 2 + 100;
         // Keep the boss bar centered if the window/phone rotates mid-fight.
-        if (this.bossBarBg) this.bossBarBg.x = width / 2;
-        if (this.bossBar && this.bossBarWidth) this.bossBar.x = width / 2 - this.bossBarWidth / 2;
-        if (this.bossText) this.bossText.x = width / 2;
+        const cx = this.bossBarCx();
+        if (this.bossBarBg) this.bossBarBg.x = cx;
+        if (this.bossBar && this.bossBarWidth) this.bossBar.x = cx - this.bossBarWidth / 2;
+        if (this.bossText) this.bossText.x = cx;
     }
 
     setWeaponIcon(name = 'shurikan', slot = 0) {
@@ -178,7 +315,10 @@ export default class PlayerUI extends Phaser.Scene {
             }
         } else {
             if (!this.rightWeaponIcon) {
-                this.rightWeaponIcon = this.add.image(this.scale.width, this.scale.height, icon).setOrigin(1, 1).setScale(.5);
+                // Touch: lift the Slot 2 icon above the action-button
+                // cluster, which otherwise covers it (see
+                // touchClusterLift). Desktop keeps it bottom-right.
+                this.rightWeaponIcon = this.add.image(this.scale.width, this.scale.height - touchClusterLift(), icon).setOrigin(1, 1).setScale(.5);
             } else {
                 this.rightWeaponIcon.setTexture(icon)
             }
@@ -321,12 +461,18 @@ export default class PlayerUI extends Phaser.Scene {
     }
 
     healthBoxUpdate(health, max) {
+        // hx shifts the bar clear of a landscape notch (hudLeft); the
+        // Graphics object is drawn at local coords and shifted via .x so
+        // the per-frame fill math below stays unchanged.
+        const hx = this.hudLeft();
         if (!this.healthBg) {
             this.healthBg = this.add.rectangle(0, 150, 300, 25, 0x000000, .8).setDepth(1).setOrigin(0, 0);
+            this.healthBg.x = hx;
         }
         if (!this.healthBox) {
             this.healthBox = this.add.graphics().setDepth(2).fillStyle('0x00FF00', 1);
             this.healthBox.fillRect(0, 150, 300, 25);
+            this.healthBox.x = hx;
         }
         const percentHealth = health / max;
         this.healthBox.clear();

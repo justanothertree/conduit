@@ -43,8 +43,14 @@ export default {
             const parsed = JSON.parse(data);
 
             if (parsed.version !== CURRENT_VERSION) {
-                console.warn('Save version mismatch. Resetting progress.');
+                console.warn('Save version mismatch. Resetting world state, preserving earned progression.');
 
+                // Version upgrades reset genuinely version-incompatible fields
+                // (location/area may not exist in new maps, stats schema may change),
+                // but the player's earned long-term progression survives:
+                // collectedItems (shard collection record), flags (one-time event
+                // flags such as all-shards bonus payout), and upgrades (shard shop
+                // levels + shardsSpent) are all re-applied through reset()'s keep.
                 this.reset({
                     keep: {
                         name: parsed.name,
@@ -52,8 +58,9 @@ export default {
                         weapons: parsed.weapons,
                         power: parsed.power,
                         cards: parsed.cards,
-                        //flags: parsed.flags,
-
+                        collectedItems: parsed.collectedItems,
+                        flags: parsed.flags,
+                        upgrades: parsed.upgrades,
                     }
                 });
 

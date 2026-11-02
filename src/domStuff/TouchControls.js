@@ -272,7 +272,19 @@ export function setupTouchControls() {
     menuButton('Settings', () => {
         gameScene()?.scene.get('EscMenu')?.input.keyboard.emit('keydown-ESC');
     });
-    menuButton('Spectate', () => emitGameKey('keydown-RIGHT'));
+    menuButton('Spectate', () => {
+        const p = gameScene()?.player;
+        const others = p?.network?.otherPlayers ? Object.keys(p.network.otherPlayers).length : 0;
+        // Desktop LEFT/RIGHT step through players and UP returns to self;
+        // touch has a single Spectate button, so it cycles forward and
+        // wraps back to your own camera at the end of the list — otherwise
+        // a phone user who starts spectating can never get back.
+        if (p && p.spectating && p.spectateIndex >= others - 1) {
+            p.spectatePlayer(false);
+        } else {
+            emitGameKey('keydown-RIGHT');
+        }
+    });
     menuButton('Chat', () => {
         document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
     });

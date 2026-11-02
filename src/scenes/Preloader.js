@@ -186,12 +186,22 @@ export default class Preloader extends Phaser.Scene {
             setupTouchControls();
         }
 
-        // ?scene=LevelName jumps straight into a scene (level testing,
-        // phone pass) instead of the saved area. Defaults to Home.
-        // A mistyped name would otherwise leave the player stuck on a
-        // blank screen, so unknown keys fall back to the saved area.
+        // ?scene=LevelName jumps straight into a level (level testing,
+        // phone pass) instead of the saved area. Only real level scenes
+        // are accepted — a mistyped or invalid name would otherwise jump
+        // into a non-level scene (or leave the player on a blank screen),
+        // so unknown names fall back to the saved area as before.
+        // A param jump also clears any saved position so the player spawns
+        // at the level's start rather than a stale saved position (this is
+        // what lets Flowline's race timer start properly).
+        const LEVEL_SCENES = ['Home', 'Level1', 'Level2', 'Level3', 'Level4', 'Level5', 'Level6', 'Level7', 'Level8', 'LevelFlow', 'LevelYaya1'];
         const sceneParam = new URLSearchParams(window.location.search).get('scene');
-        const startScene = sceneParam && this.scene.get(sceneParam) ? sceneParam : GameManager.area;
+        const paramIsLevel = sceneParam && LEVEL_SCENES.includes(sceneParam);
+        const startScene = paramIsLevel ? sceneParam : GameManager.area;
+        if (paramIsLevel) {
+            GameManager.useLastLocation = false;
+            GameManager.save();
+        }
         this.scene.start(startScene);
     }
 

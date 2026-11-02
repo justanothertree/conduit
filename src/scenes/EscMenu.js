@@ -6,6 +6,9 @@ import GameManager from "../things/GameManager.js";
 import NetworkManager from "../things/NetworkManager.js";
 import SoundUtil from "../things/soundUtils.js";
 
+// Yaya's Discord server invite — text link in the menu only, no iframe/widget.
+const DISCORD_INVITE_URL = "https://discord.gg/3bcgswDBfY";
+
 export default class EscMenu extends Phaser.Scene {
     constructor() {
         super('EscMenu');
@@ -37,6 +40,24 @@ export default class EscMenu extends Phaser.Scene {
         // volume sliders at x=600 and the name/color inputs at x=600,350
         // were unreachable on a phone. Desktop viewports (>=800x600) keep
         // scale 1 at (0,0), pixel-identical to the old layout.
+        //
+        // Touch tap targets: at 360px wide the panel renders at 0.45x, so
+        // every interactive text/button below gets a padded hit area in
+        // panel space (invisible — no visual change). Phaser hit areas
+        // are in the object's frame space (top-left = 0,0), so negative
+        // padding origins are correct for Text (origin 0,0) and Shapes.
+        const padHit = (obj, padX, padY, shape) => {
+            const w = obj.width, h = obj.height;
+            // Circle branch uses an ellipse: the four slider handles sit
+            // 50px apart vertically, so vertical padding must stay under
+            // 25px or neighboring handles' hit areas overlap and the wrong
+            // slider grabs. Horizontal padding can be generous.
+            const hitArea = shape === 'circle'
+                ? new Phaser.Geom.Ellipse(w / 2, h / 2, w + padX * 2, h + padY * 2)
+                : new Phaser.Geom.Rectangle(-padX, -padY, w + padX * 2, h + padY * 2);
+            const cb = shape === 'circle' ? Phaser.Geom.Ellipse.Contains : Phaser.Geom.Rectangle.Contains;
+            obj.setInteractive({ hitArea, hitAreaCallback: cb, useHandCursor: true });
+        };
         this.menuPanel = this.add.container(0, 0);
         this.fitMenu();
         // The game uses Phaser.Scale.RESIZE, so re-fit on viewport change.
@@ -49,8 +70,11 @@ export default class EscMenu extends Phaser.Scene {
         this.bg = this.add.rectangle(0, 0, 800, 600, 0x000000, 0.8).setOrigin(0, 0);
         this.menuPanel.add(this.bg);
 
-        this.resetButton = this.add.rectangle(0, 0, 225, 75, 0xFFFFFF, 1)
-            .setInteractive()
+        this.resetButton = this.add.rectangle(0, 0, 225, 75, 0xFFFFFF, 1);
+        // Padded tap target for phones (see padHit above); the white
+        // button itself is unchanged.
+        padHit(this.resetButton, 12, 12);
+        this.resetButton
             .on('pointerdown', () => {
                 GameManager.reset();
                 // Same transition fix as the HOME menu entry: close the menu
@@ -62,15 +86,27 @@ export default class EscMenu extends Phaser.Scene {
         const resetText = this.add.text(0, 0, 'RESET', {
             font: '32px',
             fill: '#FF0000',
-        })
+        }).setOrigin(0.5) // center on the white button, or the button
+                          // shows as a white box behind the text
         this.menuPanel.add(this.resetButton, resetText);
 
         // The four volume sliders share geometry; createSlider builds each one
         // (label, track, draggable handle) so the blocks don't repeat.
         const createSlider = (y, name) => {
-            const label = this.add.text(400, y - 10, name);
+            // Center the label on its x anchor so the four labels of
+            // different lengths line up instead of rendering off-center.
+            const label = this.add.text(400, y - 10, name).setOrigin(0.5);
             const track = this.add.rectangle(600, y, 200, 10, 0xffffff).setOrigin(0.5);
-            const handle = this.add.circle(600, y, 10, 0xff0000).setInteractive();
+            // Touch: a bigger handle and a generous hit area — at the
+            // phone panel scale (0.45x) the 10px handle was a ~9px drag
+            // target. Desktop keeps Josh's 10px dots; both get the padded
+            // hit area so grabbing a slider is forgiving.
+            const hr = isTouchDevice() ? 15 : 10;
+            const handle = this.add.circle(600, y, hr, 0xff0000);
+            // Wide horizontal / narrow vertical padding: the handles sit
+            // 50px apart, so vertical padding stays small to avoid
+            // neighboring hit areas overlapping (see padHit).
+            padHit(handle, 24, 6, 'circle');
             this.input.setDraggable(handle);
             handle.name = name;
             this.menuPanel.add(label, track, handle);
@@ -88,8 +124,10 @@ export default class EscMenu extends Phaser.Scene {
             'Made by: Josh Massarella\nDonate to help me make more games!', {
             fontSize: '24px',
             color: '#FFFFFF',
-        })
-            .setInteractive({ useHandCursor: true })
+        });
+        // Padded tap target for the scaled-down phone panel (padHit above).
+        padHit(donate, 16, 12);
+        donate
             .on('pointerdown', () => {
                 window.open('https://buymeacoffee.com/krazay');
             })
@@ -151,6 +189,9 @@ export default class EscMenu extends Phaser.Scene {
             // If the inventory DOM panel is open, ESC closes it (handled
             // by Inventory's own keydown-ESC) — don't toggle settings too.
             if (document.getElementById('inventory-panel')) return;
+            // Same for the shard shop DOM panel: its own Esc listener
+            // closes it — the menu must not toggle behind it.
+            if (document.getElementById('shard-shop')) return;
             toggleSettings();
         })
         // Close-only variant of toggleSettings: after a level restart
@@ -182,8 +223,12 @@ export default class EscMenu extends Phaser.Scene {
             const entry = this.add.text(0, y, label, {
                 fontSize: '28px',
                 color: '#FFFFFF',
-            })
-                .setInteractive({ useHandCursor: true })
+            });
+            // Padded tap target for the scaled-down phone panel (padHit
+            // above). padY is 10 (not larger) so the three entries'
+            // hit areas barely touch instead of overlapping.
+            padHit(entry, 28, 10);
+            entry
                 .on('pointerdown', onTap)
                 .on('pointerover', () => entry.setColor('#00FF00'))
                 .on('pointerout', () => entry.setColor('#FFFFFF'));
@@ -222,6 +267,25 @@ export default class EscMenu extends Phaser.Scene {
                 closeMenu();
             }
         });
+
+        // Small, out-of-the-way text link to Yaya's Discord invite (text
+        // only — the Discord widget iframe was removed on purpose).
+        const discord = this.add.text(16, 572, 'Join our Discord', {
+            fontSize: '16px',
+            color: '#9aa3ff',
+        });
+        // Padded tap target: at the phone panel scale the raw 16px text
+        // is a ~7px target. Padding is invisible (padHit above).
+        padHit(discord, 20, 14);
+        discord
+            .on('pointerdown', () => {
+                if (!DISCORD_INVITE_URL.startsWith('PASTE')) {
+                    window.open(DISCORD_INVITE_URL, '_blank');
+                }
+            })
+            .on('pointerover', () => discord.setColor('#cdd3ff'))
+            .on('pointerout', () => discord.setColor('#9aa3ff'));
+        this.menuPanel.add(discord);
 
         // Slider drag logic
         this.input.on('drag', (pointer, gameObject, dragX) => {
