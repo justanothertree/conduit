@@ -228,10 +228,12 @@ export default class PlayerUI extends Phaser.Scene {
         this.shardTotal = gs?.shardTotal ?? 0;
         if (!this.shardTotal) return;
         const found = gs.flowShardsFound?.() ?? 0;
-        // Left HUD column under the score text, inside a phone-safe margin;
-        // "◆ 12/12" at 22px is ~100px wide, fits a 360px screen. The x
-        // clears a landscape notch via hudLeft() (0 on notch-less devices).
-        this.shardText = this.add.text(this.hudLeft() + 12, 132, `◆ ${found}/${this.shardTotal}`, {
+        // Left HUD column: score (y=50, two 32px lines ends ~130), health
+        // bar (y=150, 25 tall ends at 175) — so the counter sits BELOW the
+        // bar at y=186 instead of overlapping it. "◆ 12/12" at 22px is
+        // ~100px wide, fits a 360px screen. The x clears a landscape notch
+        // via hudLeft() (0 on notch-less devices).
+        this.shardText = this.add.text(this.hudLeft() + 12, 186, `◆ ${found}/${this.shardTotal}`, {
             fontSize: '22px',
             color: '#00ffff',
             fontStyle: 'bold',

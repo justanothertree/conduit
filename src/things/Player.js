@@ -114,7 +114,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
                 // scene.cameras.main.setOffset
             }
         });
-        this.scene.input.keyboard.on('keydown-G', () => {
+        this.scene.input.keyboard.on('keydown-G', (e) => {
+            // Ignore key repeat: holding G re-fires keydown ~30x/sec and
+            // each one grants 500000, dumping money out of control in a
+            // dev session (same class as the EscMenu keydown-ESC fix).
+            if (e.repeat) return;
             if (GameManager.flags.devmode && !this.chatting && !getChatting()) {
                 this.updateMoney(500000);
             }

@@ -70,32 +70,12 @@ export default class EscMenu extends Phaser.Scene {
         this.bg = this.add.rectangle(0, 0, 800, 600, 0x000000, 0.8).setOrigin(0, 0);
         this.menuPanel.add(this.bg);
 
-        this.resetButton = this.add.rectangle(0, 0, 225, 75, 0xFFFFFF, 1);
-        // Padded tap target for phones (see padHit above); the white
-        // button itself is unchanged.
-        padHit(this.resetButton, 12, 12);
-        this.resetButton
-            .on('pointerdown', () => {
-                GameManager.reset();
-                // Same transition fix as the HOME menu entry: close the menu
-                // and stop the level via its own scene plugin, instead of
-                // SceneManager.start leaving the old level running.
-                closeMenu();
-                this.gameScene.scene.start('Home');
-            });
-        const resetText = this.add.text(0, 0, 'RESET', {
-            font: '32px',
-            fill: '#FF0000',
-        }).setOrigin(0.5) // center on the white button, or the button
-                          // shows as a white box behind the text
-        this.menuPanel.add(this.resetButton, resetText);
-
         // The four volume sliders share geometry; createSlider builds each one
         // (label, track, draggable handle) so the blocks don't repeat.
         const createSlider = (y, name) => {
-            // Center the label on its x anchor so the four labels of
-            // different lengths line up instead of rendering off-center.
-            const label = this.add.text(400, y - 10, name).setOrigin(0.5);
+            // Center the label over its own track so each of the four
+            // labels lines up with its slider (kept at setOrigin(0.5)).
+            const label = this.add.text(600, y - 10, name).setOrigin(0.5);
             const track = this.add.rectangle(600, y, 200, 10, 0xffffff).setOrigin(0.5);
             // Touch: a bigger handle and a generous hit area — at the
             // phone panel scale (0.45x) the 10px handle was a ~9px drag
@@ -184,7 +164,11 @@ export default class EscMenu extends Phaser.Scene {
             }
         }
 
-        this.input.keyboard.on('keydown-ESC', () => {
+        this.input.keyboard.on('keydown-ESC', (e) => {
+            // Ignore key repeat: holding ESC re-fires keydown ~30x/sec and
+            // each one toggles the menu, so it flickers and can end in the
+            // wrong state (same class as the keydown-C inventory fix).
+            if (e.repeat) return;
             if(getChatting()) return;
             // If the inventory DOM panel is open, ESC closes it (handled
             // by Inventory's own keydown-ESC) — don't toggle settings too.
@@ -268,6 +252,15 @@ export default class EscMenu extends Phaser.Scene {
             }
         });
 
+        // Reset used to be a floating white box in the corner; it now
+        // sits with the other menu entries. Same behavior: wipe progress
+        // and go Home through the level's own scene plugin (see HOME).
+        menuAction('RESET', 470, () => {
+            GameManager.reset();
+            closeMenu();
+            this.gameScene.scene.start('Home');
+        });
+
         // Small, out-of-the-way text link to Yaya's Discord invite (text
         // only — the Discord widget iframe was removed on purpose).
         const discord = this.add.text(16, 572, 'Join our Discord', {
@@ -279,9 +272,7 @@ export default class EscMenu extends Phaser.Scene {
         padHit(discord, 20, 14);
         discord
             .on('pointerdown', () => {
-                if (!DISCORD_INVITE_URL.startsWith('PASTE')) {
-                    window.open(DISCORD_INVITE_URL, '_blank');
-                }
+                window.open(DISCORD_INVITE_URL, '_blank');
             })
             .on('pointerover', () => discord.setColor('#cdd3ff'))
             .on('pointerout', () => discord.setColor('#9aa3ff'));

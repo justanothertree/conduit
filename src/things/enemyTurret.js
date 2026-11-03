@@ -68,7 +68,7 @@ export default class Turret extends BaseEnemy {
         this.flipX = this.player.x < this.x;
     }
 
-    // One aimed fireball at the player — mirrors the boss's spitFireballs.
+    // One aimed fireball at the player — mirrors the boss's fireBullet.
     shoot() {
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup || !this.player) return;

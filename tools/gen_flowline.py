@@ -18,8 +18,9 @@ Layout (tiles, 32px; map is 160x100, y grows downward):
   E  Boss arena        x136-157   first real boss, cover, risk/reward shards, charger on entry platform
   F  Summit climb      x138-157   zigzag to the plateau, finish line
 
-Layers match the other maps: layer1, layer2 (background — sparse cave-rock
-speckle and foreground accents in Krazay17's tilemap2 style, never colliding),
+Layers match the other maps: layer1 (empty, like most maps — the nebula
+sky shows through), layer2 (background accents in Krazay17's tilemap2
+style — braziers, pots, grass, moss, bushes, tech blocks, never colliding),
 objects, walls (stone 157, collides), walls2 (lava 329/330,
 fire damage). Tileset "tilesheet" (32px tiles).
 """
@@ -222,14 +223,19 @@ add("spawnCharger", 138, 56)             # boss entry platform (132,58)
 # ================================================================ decoration
 # layer1/layer2 are pure background: setupTileMap only ever collides
 # walls/walls2, so tiles here can't affect gameplay, collision, or spawns.
-# Style follows Krazay17's tilemap2 — dark cave-speckle noise on layer1,
-# sparse foreground accents (grass, pots, braziers) on layer2. All gids
-# below already exist in the tileset. The nebula sky stays dominant:
-# speckle is sparse clusters, not a full fill.
+# Style follows Krazay17's tilemap2 — sparse hand-placed foreground accents
+# (braziers, pots, grass, moss, bushes, tech blocks) on layer2, layer1 left
+# empty so the nebula sky stays dominant. All gids below already exist in
+# the tileset; placement is guarded by open_air() so nothing overlaps
+# walls, lava, spawns, shards, or the boss arena.
 import random
 rng = random.Random(20261101)  # deterministic — regen is byte-identical
 
-SPECKLE = [783, 788, 815, 816, 817, 818, 845, 846]  # dark cave rock
+# (2026-11-02) the sparse random cave-rock speckle on layer1 looked bad
+# against the nebula sky — Krazay17 only ever uses those tiles as dense,
+# solid background-rock fills (see tilemap2), never as scattered dots, so
+# the speckle was removed. layer1 stays empty like most other maps and the
+# hand-placed layer2 accents below are the only background decoration.
 reserved = {(o["x"] // 32, o["y"] // 32) for o in objects}
 
 
@@ -237,21 +243,6 @@ def open_air(x, y):
     return (0 <= x < W and 0 <= y < H
             and walls[y * W + x] == 0 and walls2[y * W + x] == 0
             and (x, y) not in reserved)
-
-
-def speckle(x0, y0, x1, y1, density):
-    for y in range(y0, y1 + 1):
-        for x in range(x0, x1 + 1):
-            if open_air(x, y) and rng.random() < density:
-                set_tile(layer1, x, y, rng.choice(SPECKLE))
-
-
-# distant dark rock behind the open areas
-speckle(76, 49, 91, 78, 0.10)     # canyon shaft interior
-speckle(26, 84, 58, 95, 0.08)     # above the lava pit
-speckle(100, 60, 134, 88, 0.05)   # lava lake backdrop
-speckle(138, 63, 154, 82, 0.08)   # boss arena backdrop
-speckle(142, 28, 157, 38, 0.06)   # summit cliff backdrop
 
 
 def accent(x, y, gid):

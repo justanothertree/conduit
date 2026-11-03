@@ -77,8 +77,7 @@ export function setupPlayerStates(player) {
                     player.isSlamming = 0;
                     player.isWalking = true;
                     // Network only — one guarded connection attempt, never a
-                    // connect() on every step. (Multiplayer is on hold; the
-                    // server rejects us.)
+                    // connect() on every step.
                     ensureSocketConnected(player);
                 },
                 update: (delta, input) => {

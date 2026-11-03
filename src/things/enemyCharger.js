@@ -95,7 +95,13 @@ export default class Charger extends BaseEnemy {
     charging(now) {
         const hitWall = this.body?.blocked.left || this.body?.blocked.right
             || this.body?.touching.left || this.body?.touching.right;
-        if (now >= this.stateEnd || hitWall) {
+        // Ledge check, mirroring patrol(): probe the ground ahead in the
+        // locked charge direction; no tile below means a ledge, so brake
+        // into recover instead of dashing off the platform.
+        const aheadX = this.x + this.direction * 44;
+        const groundTile = this.scene.walls?.getTileAtWorldXY(aheadX, this.y + 64);
+        const overLedge = !groundTile || groundTile.index === -1;
+        if (now >= this.stateEnd || hitWall || overLedge) {
             this.state = 'recover';
             this.stateEnd = now + this.recoverTime;
             this.setVelocityX(0);

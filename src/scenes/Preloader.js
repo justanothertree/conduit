@@ -194,7 +194,13 @@ export default class Preloader extends Phaser.Scene {
         // A param jump also clears any saved position so the player spawns
         // at the level's start rather than a stale saved position (this is
         // what lets Flowline's race timer start properly).
-        const LEVEL_SCENES = ['Home', 'Level1', 'Level2', 'Level3', 'Level4', 'Level5', 'Level6', 'Level7', 'Level8', 'LevelFlow', 'LevelYaya1'];
+        //
+        // Derived from the scenes actually registered in the game config
+        // (see main.js): everything except the boot/UI shells is a level,
+        // so adding a new level scene can't be forgotten here.
+        const UI_SCENES = new Set(['Boot', 'Preloader', 'PlayerUI', 'Inventory', 'EscMenu']);
+        const LEVEL_SCENES = Object.keys(this.game.scene.keys)
+            .filter((key) => !UI_SCENES.has(key));
         const sceneParam = new URLSearchParams(window.location.search).get('scene');
         const paramIsLevel = sceneParam && LEVEL_SCENES.includes(sceneParam);
         const startScene = paramIsLevel ? sceneParam : GameManager.area;

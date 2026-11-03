@@ -5,11 +5,6 @@ export default class ChatBubble extends Phaser.GameObjects.Container {
         scene.add.existing(this);
         this.setDepth(9);
 
-        this.padding = 10;
-
-        // this.bg = scene.add.graphics();
-        // this.add(this.bg);
-
         this.text = scene.make.text({
             x: 0,
             y: 0,
@@ -27,7 +22,6 @@ export default class ChatBubble extends Phaser.GameObjects.Container {
         this.message = [];
         this.updateMessage(message);
 
-        //this.updateBubble();
         this.fadeOutTimers()
 
     }
@@ -50,22 +44,6 @@ export default class ChatBubble extends Phaser.GameObjects.Container {
         this.message.push(message)
         this.text.setText(this.message);
 
-    }
-
-    updateBubble() {
-        const bounds = this.text.getBounds();
-        this.bg.clear();
-        this.bg.fillStyle(0xffffff, 1);
-        this.bg.fillRoundedRect(
-            bounds.x - this.padding,
-            bounds.y - this.padding,
-            bounds.width + this.padding * 2,
-            bounds.height + this.padding * 2,
-            10
-        );
-
-        this.text.setX(-bounds.width / 2);
-        this.text.setY(-bounds.height / 2);
     }
 
     fadeOutTimers() {

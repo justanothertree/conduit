@@ -3,16 +3,28 @@
 
 import GameManager from "../GameManager.js";
 
-// Client-side connect guard (multiplayer is on hold; the server rejects us).
+// Client-side connect guard (multiplayer is live — leaderboard, voice,
+// and ghost/player sync all connect).
 // socket.io v4 exposes no public "connecting" flag, so we track a manual
 // connect() already in flight ourselves. Per-move callers (walk-state enter,
 // syncNetwork) may ask for a connection every frame — this fires connect()
-// at most once per disconnect instead.
+// at most once per disconnect/retry cycle instead.
 export function ensureSocketConnected(player) {
     const socket = player.network?.socket;
     if (!socket || socket.connected || player.network._connectRequested) return;
     player.network._connectRequested = true;
-    socket.once('connect', () => { player.network._connectRequested = false; });
+    const clearConnectRequested = () => { player.network._connectRequested = false; };
+    socket.once('connect', clearConnectRequested);
+    // If the handshake itself fails, 'connect_error' fires — clear the flag
+    // so the next caller can retry instead of wedging until page reload.
+    // socket.io retries on its own too (reconnectionAttempts: 10 in
+    // NetworkManager); connect() is a no-op while the manager is already
+    // reconnecting, so this can't stack duplicate attempts.
+    socket.once('connect_error', clearConnectRequested);
+    // If every auto-retry is exhausted the manager emits 'reconnect_failed'
+    // and 'connect' will never fire — without this listener the flag would
+    // stay true forever and we'd never retry until page reload.
+    socket.io?.once('reconnect_failed', clearConnectRequested);
     socket.connect();
 }
 
@@ -24,9 +36,9 @@ export function playerSyncNetwork(player) {
     ensureSocketConnected(player);
 
     // Volatile: a sync request is fire-and-forget state sync. While the
-    // server rejects us / the transport is down it is dropped instead of
-    // piling up in socket.io's outbound buffer. The 500ms throttle above
-    // retries naturally once we're connected again.
+    // transport is down it is dropped instead of piling up in socket.io's
+    // outbound buffer. The 500ms throttle above retries naturally once
+    // we're connected again.
     player.network.socket.volatile.emit('playerSyncRequest', {
         data: {
             location: GameManager.location,
