@@ -200,7 +200,8 @@ export default class BaseGame extends Phaser.Scene {
     this.input.keyboard.on('keydown-C', (e) => {
       // Ignore key repeat: holding C re-fires keydown ~30x/sec and each
       // one re-opens/re-renders the DOM panel, making it unusable.
-      if (e.repeat) return;
+      // Undefined-safe: some menu paths emit without an event object.
+      if (e?.repeat) return;
       openInv?.();
     });
     this.input.keyboard.on('keyup-C', () => {

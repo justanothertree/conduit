@@ -168,7 +168,9 @@ export default class EscMenu extends Phaser.Scene {
             // Ignore key repeat: holding ESC re-fires keydown ~30x/sec and
             // each one toggles the menu, so it flickers and can end in the
             // wrong state (same class as the keydown-C inventory fix).
-            if (e.repeat) return;
+            // The touch menu emits this event with no event object, so the
+            // guard must tolerate an undefined e.
+            if (e?.repeat) return;
             if(getChatting()) return;
             // If the inventory DOM panel is open, ESC closes it (handled
             // by Inventory's own keydown-ESC) — don't toggle settings too.

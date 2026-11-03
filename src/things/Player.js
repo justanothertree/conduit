@@ -118,12 +118,18 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             // Ignore key repeat: holding G re-fires keydown ~30x/sec and
             // each one grants 500000, dumping money out of control in a
             // dev session (same class as the EscMenu keydown-ESC fix).
-            if (e.repeat) return;
+            // Undefined-safe for consistency with the other guards.
+            if (e?.repeat) return;
             if (GameManager.flags.devmode && !this.chatting && !getChatting()) {
                 this.updateMoney(500000);
             }
         });
-        this.scene.input.keyboard.on('keydown-F', () => {
+        this.scene.input.keyboard.on('keydown-F', (e) => {
+            // Ignore key repeat: holding F re-fires keydown ~30x/sec and
+            // each one re-opens the shop panels for every interactable in
+            // range (same class as the ESC/C/G fixes). The touch menu's
+            // Interact entry emits with no event object, so guard e itself.
+            if (e?.repeat) return;
             if (this.chatting || !this.scene || !this.alive || getChatting()) return;
             if (!this.scene.interactGroup) return;
             this.scene.interactGroup.forEach((interact) => {
@@ -135,13 +141,19 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         });
 
         this.spectateIndex = 0;
-        this.scene.input.keyboard.on('keydown-LEFT', () => {
+        // Ignore key repeat on the spectate steppers: holding an arrow key
+        // re-fires ~30x/sec and cycles through other players uselessly.
+        // Undefined-safe: the touch menu emits these with no event object.
+        this.scene.input.keyboard.on('keydown-LEFT', (e) => {
+            if (e?.repeat) return;
             this.spectatePlayer(true, -1);
         });
-        this.scene.input.keyboard.on('keydown-UP', () => {
+        this.scene.input.keyboard.on('keydown-UP', (e) => {
+            if (e?.repeat) return;
             this.spectatePlayer(false);
         });
-        this.scene.input.keyboard.on('keydown-RIGHT', () => {
+        this.scene.input.keyboard.on('keydown-RIGHT', (e) => {
+            if (e?.repeat) return;
             this.spectatePlayer(true, 1);
         });
 
@@ -157,7 +169,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             }
         });
 
-        this.scene.input.keyboard.on('keydown-T', () => {
+        // Ignore key repeat: holding T re-fires ~30x/sec, spamming the
+        // Home transition and a save per fire (same class as the ESC/C/G/F
+        // fixes). Undefined-safe: the touch menu emits with no event object.
+        this.scene.input.keyboard.on('keydown-T', (e) => {
+            if (e?.repeat) return;
             if (this.scene.scene.key !== 'Home' && this.body.blocked.down && !this.chatting || !this.alive) {
                 GameManager.useLastLocation = false;
                 GameManager.save();
@@ -165,7 +181,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             }
         });
 
-        this.scene.input.keyboard.on('keydown-R', () => {
+        // Ignore key repeat: holding R re-fires ~30x/sec and respawns
+        // the player that often (same class as the ESC/C/G/F/T fixes).
+        // Undefined-safe: the touch menu emits with no event object.
+        this.scene.input.keyboard.on('keydown-R', (e) => {
+            if (e?.repeat) return;
             if (this.body.blocked.down && !this.chatting || !this.alive) {
                 this.respawnPlayer();
                 // GameManager.useLastLocation = false;
