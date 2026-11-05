@@ -3,6 +3,8 @@ import Bullet from "./bullet.js"
 import Duck from "./enemyDuck.js"
 import Bat from "./enemyBat.js"
 import Boss from "./enemyBoss.js"
+import Boss2 from "./enemyBoss2.js"
+import Checkpoint from "./checkpoint.js"
 import Turret from "./enemyTurret.js"
 import Charger from "./enemyCharger.js"
 import SunMan from "./enemySunman.js";
@@ -44,6 +46,9 @@ export default class SpawnManager {
         this.bossGroup = this.scene.physics.add.group({
             classType: Boss,
         });
+        this.boss2Group = this.scene.physics.add.group({
+            classType: Boss2,
+        });
         this.turretGroup = this.scene.physics.add.group({
             classType: Turret,
             allowGravity: false,
@@ -69,6 +74,7 @@ export default class SpawnManager {
             { group: this.sunmanGroup, handler: 'enemyHit', zap: true, walls: false },
             { group: this.duckGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.bossGroup, handler: 'enemyHit', zap: true, walls: true },
+            { group: this.boss2Group, handler: 'enemyHit', zap: true, walls: true },
             { group: this.turretGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.chargerGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.bulletGroup, handler: 'bulletHit', zap: false, walls: false },
@@ -144,6 +150,31 @@ export default class SpawnManager {
             }
         }
         return boss;
+    }
+
+    // World 1 boss: the Iron Warden (Boss2 class, 3 distinct phases —
+    // sweep rows / burst+ring / pinwheel+slam). A per-run set piece
+    // guarding the World 1 arena — unlike regular ducks it does not
+    // respawn.
+    spawnBoss2(x, y, obj) {
+        const props = getProperty(obj);
+        const health = props?.health ?? Boss2.MAX_HEALTH;
+        let boss = this.boss2Group.get(x, y);
+        if (boss) {
+            if (!boss.activate(x, y, health)) {
+                boss = this.boss2Group.create();
+                boss.activate(x, y, health);
+            }
+        }
+        return boss;
+    }
+
+    // World 1 checkpoint marker: records a per-run respawn point
+    // (Checkpoint class). Static markers — recreated on every scene
+    // create, no pooling.
+    spawnCheckpoint(x, y, obj) {
+        const props = getProperty(obj);
+        new Checkpoint(this.scene, x, y, props?.index ?? 0);
     }
 
     spawnCoin(x, y, obj) {

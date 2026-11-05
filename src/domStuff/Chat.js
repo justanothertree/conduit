@@ -94,6 +94,13 @@ export default function setupChat() {
         }
 
         if (e.code === 'Enter') {
+            // Ignore key repeat: holding Enter re-fires keydown ~30x/sec and
+            // each one focuses the input or sends the message, so the panel
+            // flickers and the game keyboard churns disabled/enabled on
+            // every fire (same class as the Phaser keydown-repeat guards).
+            // The touch menu's synthetic Enter has no repeat flag, so it
+            // still opens chat.
+            if (e.repeat) return;
             e.preventDefault(); // prevents default behavior like newline
             if (!isChatting) {
                 textInput.focus();

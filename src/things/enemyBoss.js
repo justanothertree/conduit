@@ -49,6 +49,13 @@ export default class Boss extends BaseEnemy {
         this.nextLeap = 0;
         this.volleyKind = 0;   // alternates the two patterns in phases 2/3
         this.windingUp = false; // telegraph in progress — no new volley yet
+        // Telegraph generation: guards overlapping wind-ups. startVolley and
+        // phaseBurst can overlap when the phase changes mid-volley-wind-up;
+        // each new wind-up bumps the generation, and a delayed completion
+        // only applies while its generation is still current — a stale
+        // completion can't clear `windingUp` or restore the tint early and
+        // break the live telegraph.
+        this.volleyGen = 0;
         this.bossShots = [];    // own projectile refs, for the MAX_SHOTS cap
         this.arenaLeft = 0;     // computed in activate() from the walls layer
         this.arenaRight = 0;
@@ -101,6 +108,9 @@ export default class Boss extends BaseEnemy {
         this.speed = 160;
         this.volleyKind = 0;
         this.windingUp = false;
+        // volleyGen intentionally NOT reset: deactivate() already bumped it
+        // to invalidate the old life's pending wind-ups, and keeping it
+        // monotonic guarantees no stale delayedCall can ever match again.
         this.bossShots = [];
         this.nextFireball = this.scene.time.now + 1500; // a beat before it starts
         this.nextLeap = this.scene.time.now + 4000;
@@ -253,8 +263,13 @@ export default class Boss extends BaseEnemy {
         const pattern = this.pickPattern();
         this.volleyKind++;
         this.windingUp = true;
+        const gen = ++this.volleyGen;
         this.setTint(0xfff176);
         this.scene.time.delayedCall(pattern.windUp, () => {
+            // A phase change during this wind-up starts a newer one (see
+            // phaseBurst): the stale completion must not clear `windingUp`,
+            // restore the tint early, or fire into the new telegraph.
+            if (gen !== this.volleyGen) return;
             this.windingUp = false;
             this.restoreTint();
             if (this.dead || !this.active || !this.player) return;
@@ -267,8 +282,13 @@ export default class Boss extends BaseEnemy {
         const gapAt = Phaser.Math.RadToDeg(
             Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y));
         this.windingUp = true;
+        const gen = ++this.volleyGen;
         this.setTint(0xfff176);
         this.scene.time.delayedCall(600, () => {
+            // Same guard as startVolley: if another wind-up superseded this
+            // one, the stale completion must not clear `windingUp` or
+            // restore the tint early.
+            if (gen !== this.volleyGen) return;
             this.windingUp = false;
             this.restoreTint();
             if (this.dead || !this.active || !this.player) return;
@@ -361,23 +381,65 @@ export default class Boss extends BaseEnemy {
     // dropped near the arena. The shards use 'bossloot-' ids so they persist
     // via GameManager.collectedItems without polluting the ◆ n/12 Flowline
     // counter (flowShardsFound only counts 'flow-' ids).
+    //
+    // The flag is set and saved only AFTER the spawns succeed: if the
+    // spawnManager is missing, the flag stays unset and the loot is retried
+    // on the next kill instead of being lost forever with a burned flag.
     dropFirstKillLoot() {
         if (GameManager.flags.bossLootDropped) return;
-        GameManager.flags.bossLootDropped = true;
-        GameManager.save();
         const sm = this.scene.spawnManager;
         if (!sm) return;
         const mkShardObj = (id) => ({ properties: [{ name: 'id', type: 'string', value: id }] });
-        sm.spawnShard(this.x - 90, this.y - 60, mkShardObj('bossloot-1'));
-        sm.spawnShard(this.x + 90, this.y - 60, mkShardObj('bossloot-2'));
-        sm.spawnCard(this.x, this.y - 100, {
+        const p1 = this.nudgeDropPoint(this.x - 90, this.y - 60);
+        const p2 = this.nudgeDropPoint(this.x + 90, this.y - 60);
+        const p3 = this.nudgeDropPoint(this.x, this.y - 100);
+        sm.spawnShard(p1.x, p1.y, mkShardObj('bossloot-1'));
+        sm.spawnShard(p2.x, p2.y, mkShardObj('bossloot-2'));
+        sm.spawnCard(p3.x, p3.y, {
             properties: [{ name: 'type', type: 'string', value: 'CardFalcion' }],
         });
+        GameManager.flags.bossLootDropped = true;
+        GameManager.save();
+    }
+
+    // Nudge a loot drop point out of solid geometry. Probes the walls layer
+    // (stone) and the walls2 layer (lava, fire damage) with the same
+    // getTileAtWorldXY pattern used in snapToGround, walking the point up —
+    // then sideways — until it sits in free air. Falls back to the
+    // unnudged point: a pickup inside geometry is still better than no loot.
+    nudgeDropPoint(x, y) {
+        const walls = this.scene.walls;
+        const lava = this.scene.walls2;
+        if (!walls && !lava) return { x, y };
+        const blocked = (px, py) => {
+            if (walls) {
+                const wt = walls.getTileAtWorldXY(px, py);
+                if (wt && wt.index !== -1) return true;
+            }
+            if (lava) {
+                const lt = lava.getTileAtWorldXY(px, py);
+                if (lt && lt.index !== -1) return true;
+            }
+            return false;
+        };
+        if (!blocked(x, y)) return { x, y };
+        // Walk upward in 32px steps — the drops are airborne pickups.
+        let nx = x, ny = y;
+        for (let i = 0; i < 12 && blocked(nx, ny); i++) ny -= 32;
+        if (!blocked(nx, ny)) return { x: nx, y: ny };
+        // Then sweep sideways at the original height.
+        for (const dx of [64, -64, 128, -128, 192, -192]) {
+            nx = x + dx;
+            ny = y;
+            if (!blocked(nx, ny)) return { x: nx, y: ny };
+        }
+        return { x, y };
     }
 
     deactivate() {
         this.barVisible = false;
         this.windingUp = false;
+        this.volleyGen++; // invalidate any pending wind-up completions
         this.scene?.player?.playerUI?.hideBossBar();
         super.deactivate();
     }

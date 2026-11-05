@@ -14,6 +14,7 @@ import Level5 from './scenes/Level5.js';
 import Level6 from './scenes/Level6.js';
 import LevelYaya1 from './scenes/LevelYaya1.js';
 import LevelFlow from './scenes/LevelFlow.js';
+import World1 from './scenes/World1.js';
 import Level7 from './scenes/Level7.js';
 import Level8 from './scenes/Level8.js';
 import setupChat from './domStuff/Chat.js';
@@ -51,7 +52,7 @@ const config = {
 
   scene: [Boot, Preloader, Home,
     Level1, Level2, Level3, Level4, Level5, Level6, Level7, Level8,
-    LevelYaya1, LevelFlow,
+    LevelYaya1, LevelFlow, World1,
     PlayerUI, Inventory, EscMenu],
 };
 

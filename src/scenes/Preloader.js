@@ -101,6 +101,7 @@ export default class Preloader extends Phaser.Scene {
         this.load.tilemapTiledJSON('tilemap8', 'assets/tilemap8.json');
         this.load.tilemapTiledJSON('tilemapYaya1', 'assets/tilemapYaya1.json');
         this.load.tilemapTiledJSON('tilemapFlow', 'assets/tilemapFlow.json');
+        this.load.tilemapTiledJSON('tilemapWorld1', 'assets/tilemapWorld1.json');
 
 
         this.load.spritesheet('devilMan', 'assets/DevilMan.png', {
@@ -206,6 +207,9 @@ export default class Preloader extends Phaser.Scene {
         const startScene = paramIsLevel ? sceneParam : GameManager.area;
         if (paramIsLevel) {
             GameManager.useLastLocation = false;
+            // A param jump starts a fresh run — clear any per-run World 1
+            // checkpoint so the player spawns at the level's start.
+            GameManager.checkpoint = null;
             GameManager.save();
         }
         this.scene.start(startScene);

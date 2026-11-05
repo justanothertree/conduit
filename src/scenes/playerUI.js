@@ -257,12 +257,15 @@ export default class PlayerUI extends Phaser.Scene {
     }
 
     // "FLOWLINE COMPLETE!" — centered (clear of notch/cutout edges), sized
-    // to fit a 360px phone, fades out after a few seconds.
+    // to fit a 360px phone, fades out after a few seconds. Levels with
+    // their own completion text set `shardBannerText` on the game scene
+    // (World1 does); Flowline's label is the default.
     showShardBanner() {
         this.shardBanner?.destroy();
         const w = this.scale.width, h = this.scale.height;
         const size = Math.max(20, Math.min(36, Math.floor(w / 12)));
-        this.shardBanner = this.add.text(w / 2, h * 0.35, 'FLOWLINE COMPLETE!', {
+        const label = this.gameScene?.shardBannerText ?? 'FLOWLINE COMPLETE!';
+        this.shardBanner = this.add.text(w / 2, h * 0.35, label, {
             fontSize: `${size}px`,
             color: '#ffff00',
             fontStyle: 'bold',

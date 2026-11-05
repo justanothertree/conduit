@@ -90,7 +90,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         this.leftSpam = 0;
         this.rightSpam = 0;
         this.speed = 250;
-        this.test = 0;
         this.buffColor = 0x66ff33;
 
         this.controls = {
@@ -101,8 +100,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             right: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D, false),
             dash: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT, false),
         };
-
-        this.myPointer = new Phaser.Input.Pointer(this.scene.input.manager, 1)
 
         this.scene.input.on('pointerdown', (pointer) => {
             if (GameManager.flags.devmode && pointer.middleButtonDown()) {
@@ -198,14 +195,35 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             this.spawnBuffer = false;
         })
 
-        // window.addEventListener('blur', () => {
-        //     this.windowFocused = false;
-        //     console.log('focusOut')
-        // })
-        // window.addEventListener('focus', () => {
-        //     this.windowFocused = true;
-        //     console.log('focusIn')
-        // })
+        // Alt-tab / app switch while a key is held swallows the keyup:
+        // Phaser's KeyboardManager has no blur handling, so the Key stays
+        // isDown and the player keeps walking after focus returns. Same for
+        // the legacy key bar's document.*Button.isClicked flags (their keyup
+        // handlers are document-level too). Release everything on blur and
+        // on tab hide. Replace-not-stack: a new Player is constructed per
+        // level, so the listeners are removed again on scene shutdown.
+        this._releaseHeldKeys = () => {
+            for (const key of Object.values(this.controls)) key.reset();
+            for (const name of ['leftButton', 'rightButton', 'jumpButton', 'dashButton', 'crouchButton', 'healButton']) {
+                const btn = document[name];
+                if (!btn) continue;
+                btn.isClicked = false;
+                // Mirror KeyBinds' inActive() so the key-bar icon doesn't
+                // stay painted as pressed until the key is used again.
+                btn.querySelector('.kb-image')?.setAttribute('src', 'assets/KeyUnpressed.png');
+                const label = btn.querySelector('.kb-label');
+                if (label) label.style.transform = 'translate(-50%, -95%)';
+            }
+        };
+        this._onVisibilityChange = () => {
+            if (document.hidden) this._releaseHeldKeys();
+        };
+        window.addEventListener('blur', this._releaseHeldKeys);
+        document.addEventListener('visibilitychange', this._onVisibilityChange);
+        this.scene.events.once('shutdown', () => {
+            window.removeEventListener('blur', this._releaseHeldKeys);
+            document.removeEventListener('visibilitychange', this._onVisibilityChange);
+        });
 
         this.updateMoney();
         this.setupStates();

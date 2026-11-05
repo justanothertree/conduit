@@ -130,6 +130,14 @@ export default class Home extends BaseGame {
                 tint: 0x7CFC00,
                 targetScene: 'LevelFlow',
             },
+            // World 1 — combat-forward level (lime like Flowline's)
+            portalWorld1: {
+                x: 2700,
+                y: 1500,
+                tex: 'portal3',
+                tint: 0x7CFC00,
+                targetScene: 'World1',
+            },
         }
 
         Object.entries(this.portalData).forEach(([key, data]) => {
@@ -145,6 +153,10 @@ export default class Home extends BaseGame {
         this.physics.add.overlap(this.player, this.portals, (player, portal) => {
             if (portal.targetScene && this.scene.key !== portal.targetScene) {
                 GameManager.useLastLocation = false;
+                // Leaving Home for a level starts a fresh run — clear any
+                // per-run World 1 checkpoint so the player spawns at the
+                // level's start, not a stale mid-level checkpoint.
+                GameManager.checkpoint = null;
                 GameManager.save();
                 this.scene.start(portal.targetScene);
             }
@@ -167,6 +179,10 @@ export default class Home extends BaseGame {
                 case 'LevelFlow':
                     x = this.portalData['portalFlow'].x;
                     y = this.portalData['portalFlow'].y;
+                    break;
+                case 'World1':
+                    x = this.portalData['portalWorld1'].x;
+                    y = this.portalData['portalWorld1'].y;
                     break;
                 case 'Level2':
                     x = this.portalData['portal2'].x;

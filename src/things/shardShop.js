@@ -3,8 +3,8 @@
 // A shard-keeper crystal the player walks up to and interacts with (F key,
 // or the touch menu's Interact entry — same interactGroup convention as the
 // devil shop). Interacting opens a DOM shop panel (src/domStuff/shardShop.css)
-// where Flowline shards can be spent on three upgrade lines: Aura, Max
-// Health, Damage. DOM, not canvas, so taps land on phones: the panel sits at
+// where Flowline and World 1 shards can be spent on four upgrade lines:
+// Aura, Max Health, Damage, Cooldown. DOM, not canvas, so taps land on phones: the panel sits at
 // z-index 20, above the touch overlay (z-index 10), and needs no changes to
 // the touch joystick-zone menu-open polling.
 //
@@ -40,12 +40,22 @@ export const SHARD_UPGRADES = {
         desc: (level) => `+${10 * level}% weapon damage`,
         cost: (level) => level + 1,
     },
+    cooldown: {
+        name: 'Cooldown',
+        desc: (level) => `-${10 * level}% weapon cooldowns`,
+        cost: (level) => level + 1,
+    },
 };
 
 // Lazily initialize the shop schema on saves that predate it.
 export function shardShopLevels() {
     const u = GameManager.upgrades;
     if (!u.shardShop) u.shardShop = { aura: 0, maxHealth: 0, damage: 0 };
+    // Per-line guards for saves that predate a line (the Cooldown line
+    // arrived with World 1).
+    for (const line of Object.keys(SHARD_UPGRADES)) {
+        if (u.shardShop[line] === undefined) u.shardShop[line] = 0;
+    }
     if (!u.shardsSpent) u.shardsSpent = [];
     return u.shardShop;
 }
@@ -69,6 +79,7 @@ function applyUpgrade(line, player) {
         player.aura?.setStats?.();
     }
     // 'damage' is read live via WeaponBase.shardDamageMult() — nothing to apply.
+    // 'cooldown' is read live via WeaponBase.shardCooldownMult() — nothing to apply.
 }
 
 function buy(line, player) {
@@ -147,11 +158,11 @@ export function openShardShop(player) {
     root.id = 'shard-shop';
     root.innerHTML = `
         <div class="ss-backdrop"></div>
-        <div class="ss-panel">
+        <div class="ss-panel" role="dialog" aria-label="Shard shop">
             <div class="ss-head"><span>◆ SHARD SHOP</span><button class="ss-close" aria-label="Close">×</button></div>
             <div class="ss-balance"></div>
             <div class="ss-rows"></div>
-            <div class="ss-note">Shards are finite — 12 in the world. Spend wisely.</div>
+            <div class="ss-note">Shards are finite — 12 in Flowline, 12 in World 1, plus boss loot. Spend wisely.</div>
         </div>`;
     document.body.appendChild(root);
     root.querySelector('.ss-close').onclick = closeShardShop;

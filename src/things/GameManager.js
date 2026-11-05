@@ -17,6 +17,10 @@ export default {
         devmode: false,
     },
     useLastLocation: false,
+    // Session-only (never serialized): World 1's per-run respawn
+    // checkpoint { scene, x, y, index }. Cleared on fresh level entries
+    // (Home portal overlap, ?scene= jumps) and on reload.
+    checkpoint: null,
 
     save() {
         const data = {
@@ -102,6 +106,7 @@ export default {
             devmode: false,
         };
         this.useLastLocation = false;
+        this.checkpoint = null;
 
         this.save();
     },

@@ -85,6 +85,12 @@ export function addButton(imgSrc, key, action = 'Interact', row = 1, col = 1, wi
     }
 
     document.addEventListener('keydown', (e) => {
+        // Ignore key repeat: holding a key re-fires keydown ~30x/sec and
+        // each one re-runs the button's callback — the '/' Hide button
+        // would flicker the whole bar. Movement keys only set a flag read
+        // per frame, so repeat adds nothing there either (same class as
+        // the chat Enter fix and the Phaser keydown-repeat guards).
+        if (e.repeat) return;
         if (e.code === key) {
             active?.();
         }

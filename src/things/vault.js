@@ -50,17 +50,6 @@ export default class Vault extends Phaser.GameObjects.Sprite {
             }, 500);
         }
 
-        // const visual = () => {
-        //     this.scene.add.particles(player.x, player.y, 'sourceOrb', {
-        //         blendMode: 'ADD',
-        //         lifespan: 1000,
-        //         duration: 500,
-        //         scale: { start: 1, end: 0 },
-        //         moveToX: this.getWorldTransformMatrix().x,
-        //     })
-        // }
-        // visual();
-
         this.depositEmitter.explode(25, player.x - this.depositEmitter.x, player.y - this.depositEmitter.y);
     }
 

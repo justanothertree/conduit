@@ -109,7 +109,7 @@ export default class EscMenu extends Phaser.Scene {
         padHit(donate, 16, 12);
         donate
             .on('pointerdown', () => {
-                window.open('https://buymeacoffee.com/krazay');
+                window.open('https://buymeacoffee.com/krazay', '_blank', 'noopener');
             })
             .on('pointerover', () => {
                 donate.setColor('#00FF00');
@@ -145,6 +145,23 @@ export default class EscMenu extends Phaser.Scene {
 
 
 
+        // RESET is destructive (wipes ALL progress), so it gets a
+        // two-step confirm: first tap only ARMS it (red label, 3s
+        // window); a second tap inside the window executes. Closing the
+        // menu or the 3s timeout disarms back to the safe state.
+        let resetEntry = null;
+        let resetArmed = false;
+        let resetDisarmTimer = null;
+        const disarmReset = () => {
+            resetArmed = false;
+            if (resetDisarmTimer) {
+                resetDisarmTimer.remove(false);
+                resetDisarmTimer = null;
+            }
+            // resetEntry is still null before the entries are built below.
+            if (resetEntry) resetEntry.setText('RESET').setColor('#FFFFFF');
+        };
+
         // ESC key
         const toggleSettings = () => {
             this.visible = !this.visible;
@@ -156,6 +173,7 @@ export default class EscMenu extends Phaser.Scene {
                 this.openNameInput();
                 this.openColorInput();
             } else {
+                disarmReset();
                 this.scene.resume(this.gameScene);
                 this.input.enabled = false;
                 this.scene.setVisible(false);
@@ -186,6 +204,7 @@ export default class EscMenu extends Phaser.Scene {
         // menu instead of closing it. Closing unconditionally is safe
         // in both cases.
         const closeMenu = () => {
+            disarmReset();
             if (!this.visible) return;
             this.visible = false;
             this.scene.resume(this.gameScene);
@@ -205,19 +224,23 @@ export default class EscMenu extends Phaser.Scene {
         // Menu entries for the three actions with no phone button
         // (package B: Inventory / Home / Respawn live here instead of
         // on the thumb grid). Same actions as the C / T / R keys.
-        const menuAction = (label, y, onTap) => {
+        // opts lets one entry differ (RESET: bigger tap target, red
+        // armed colors) without changing the others' behavior.
+        const menuAction = (label, y, onTap, opts = {}) => {
             const entry = this.add.text(0, y, label, {
-                fontSize: '28px',
-                color: '#FFFFFF',
+                fontSize: opts.fontSize || '28px',
+                color: opts.color || '#FFFFFF',
             });
             // Padded tap target for the scaled-down phone panel (padHit
             // above). padY is 10 (not larger) so the three entries'
             // hit areas barely touch instead of overlapping.
-            padHit(entry, 28, 10);
+            padHit(entry, opts.padX ?? 28, opts.padY ?? 10);
+            const baseColor = () => (opts.baseColor ? opts.baseColor() : '#FFFFFF');
+            const hoverColor = () => (opts.hoverColor ? opts.hoverColor() : '#00FF00');
             entry
                 .on('pointerdown', onTap)
-                .on('pointerover', () => entry.setColor('#00FF00'))
-                .on('pointerout', () => entry.setColor('#FFFFFF'));
+                .on('pointerover', () => entry.setColor(hoverColor()))
+                .on('pointerout', () => entry.setColor(baseColor()));
             this.menuPanel.add(entry);
             return entry;
         };
@@ -255,12 +278,37 @@ export default class EscMenu extends Phaser.Scene {
         });
 
         // Reset used to be a floating white box in the corner; it now
-        // sits with the other menu entries. Same behavior: wipe progress
-        // and go Home through the level's own scene plugin (see HOME).
-        menuAction('RESET', 470, () => {
+        // sits with the other menu entries. It is the one destructive
+        // entry, so it needs a two-step confirm: the first tap only
+        // ARMS it (red "tap again" label, 3s window) and the second tap
+        // inside the window executes the reset — exactly as before:
+        // wipe progress and go Home through the level's own scene
+        // plugin (see HOME). RESET sits 80px below RESPAWN (was 50)
+        // with a ~98px hit height: at the 0.45x phone panel scale that
+        // is a 44px physical tap target, with no overlap into RESPAWN
+        // above or the Discord link below.
+        resetEntry = menuAction('RESET', 500, () => {
+            if (!resetArmed) {
+                resetArmed = true;
+                resetEntry.setText('Tap again to wipe ALL progress');
+                // Re-pad: the armed label is wider than 'RESET' and the
+                // whole visible label must be tappable for the 2nd tap.
+                padHit(resetEntry, 60, 33);
+                resetEntry.setColor('#FF3333');
+                // Auto-disarm if the second tap never comes.
+                resetDisarmTimer = this.time.delayedCall(3000, disarmReset);
+                return;
+            }
+            // Second tap inside the window: run the reset, then disarm.
+            disarmReset();
             GameManager.reset();
             closeMenu();
             this.gameScene.scene.start('Home');
+        }, {
+            padX: 60,
+            padY: 33,
+            baseColor: () => (resetArmed ? '#FF3333' : '#FFFFFF'),
+            hoverColor: () => (resetArmed ? '#FF3333' : '#00FF00'),
         });
 
         // Small, out-of-the-way text link to Yaya's Discord invite (text
@@ -274,7 +322,10 @@ export default class EscMenu extends Phaser.Scene {
         padHit(discord, 20, 14);
         discord
             .on('pointerdown', () => {
-                window.open(DISCORD_INVITE_URL, '_blank');
+                // 'noopener': like the donate link above, a bare _blank lets
+                // the opened page keep a window.opener reference
+                // (reverse-tabnabbing surface).
+                window.open(DISCORD_INVITE_URL, '_blank', 'noopener');
             })
             .on('pointerover', () => discord.setColor('#cdd3ff'))
             .on('pointerout', () => discord.setColor('#9aa3ff'));

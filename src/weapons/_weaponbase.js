@@ -39,6 +39,14 @@ export default class WeaponBase {
         return 1 + 0.10 * lvl;
     }
 
+    // Shard-shop Cooldown line: -10% weapon cooldown per purchased level
+    // (up to -30%). Read live from the save so it applies without
+    // re-equipping.
+    shardCooldownMult() {
+        const lvl = GameManager.upgrades?.shardShop?.cooldown ?? 0;
+        return 1 - 0.10 * lvl;
+    }
+
     damageScaling() {
         const money = GameManager.power.money;
         if (!money) return 1;
@@ -86,7 +94,8 @@ export default class WeaponBase {
 
     startCooldown() {
         this.cooldown = true;
-        this.cd = Math.max(this.baseCooldown, this.baseCooldown + this.cooldownDelay);
+        this.cd = Math.max(this.baseCooldown, this.baseCooldown + this.cooldownDelay)
+            * this.shardCooldownMult();
 
         this.cooldownStartTime = this.scene.time.now;
 

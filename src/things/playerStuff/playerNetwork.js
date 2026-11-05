@@ -14,17 +14,38 @@ export function ensureSocketConnected(player) {
     if (!socket || socket.connected || player.network._connectRequested) return;
     player.network._connectRequested = true;
     const clearConnectRequested = () => { player.network._connectRequested = false; };
-    socket.once('connect', clearConnectRequested);
+    const manager = socket.io;
+    // These three outcomes are mutually exclusive per connection cycle, and
+    // socket.io's auto-retry spans multiple cycles — so when one fires, drop
+    // the other two. Otherwise each retry adds three fresh `once()` listeners
+    // while the losing outcomes from the prior cycle stay registered and
+    // pile up (N retries → N stale listeners on the next event).
+    const onConnect = () => {
+        socket.off('connect_error', onConnectError);
+        manager?.off('reconnect_failed', onReconnectFailed);
+        clearConnectRequested();
+    };
+    const onConnectError = () => {
+        socket.off('connect', onConnect);
+        manager?.off('reconnect_failed', onReconnectFailed);
+        clearConnectRequested();
+    };
+    const onReconnectFailed = () => {
+        socket.off('connect', onConnect);
+        socket.off('connect_error', onConnectError);
+        clearConnectRequested();
+    };
+    socket.once('connect', onConnect);
     // If the handshake itself fails, 'connect_error' fires — clear the flag
     // so the next caller can retry instead of wedging until page reload.
     // socket.io retries on its own too (reconnectionAttempts: 10 in
     // NetworkManager); connect() is a no-op while the manager is already
     // reconnecting, so this can't stack duplicate attempts.
-    socket.once('connect_error', clearConnectRequested);
+    socket.once('connect_error', onConnectError);
     // If every auto-retry is exhausted the manager emits 'reconnect_failed'
     // and 'connect' will never fire — without this listener the flag would
     // stay true forever and we'd never retry until page reload.
-    socket.io?.once('reconnect_failed', clearConnectRequested);
+    manager?.once('reconnect_failed', onReconnectFailed);
     socket.connect();
 }
 
