@@ -36,8 +36,16 @@ export default class LevelFlow extends BaseGame {
         portal.targetScene = 'Home';
         this.shrinkCollision(portal, 140, 140);
 
+        // One-shot guard, same as Home's portals: the overlap fires every
+        // physics step while the player stands in it, and each firing
+        // queues stop + start — without the flag a double overlap could
+        // boot two scenes at once (the Home portal freeze, 2026-11-14).
+        // Reset on every scene entry (setupReturnPortal runs in create()).
+        this._portalTransitioning = false;
         this.physics.add.overlap(this.player, this.portals, (player, p) => {
+            if (this._portalTransitioning) return;
             if (p.targetScene && this.scene.key !== p.targetScene) {
+                this._portalTransitioning = true;
                 GameManager.useLastLocation = false;
                 GameManager.save();
                 this.scene.start(p.targetScene);

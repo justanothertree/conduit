@@ -130,12 +130,16 @@ export default class Home extends BaseGame {
                 tint: 0x7CFC00,
                 targetScene: 'LevelFlow',
             },
-            // World 1 — combat-forward level (lime like Flowline's)
+            // World 1 — combat-forward level. Burnt orange and far from
+            // Flowline's lime portal (northwest corner vs north-center):
+            // the two used to sit 200px apart with the same tint, and a
+            // 115px-wide player body could overlap BOTH 140px portal
+            // boxes at once — see the freeze note on the overlap handler.
             portalWorld1: {
-                x: 2700,
-                y: 1500,
+                x: 1500,
+                y: 1200,
                 tex: 'portal3',
-                tint: 0x7CFC00,
+                tint: 0xFF6600,
                 targetScene: 'World1',
             },
         }
@@ -150,8 +154,42 @@ export default class Home extends BaseGame {
             this.shrinkCollision(portal, 140, 140);
         });
 
+        // Labels so the two new portals read as separate destinations,
+        // not one blur (same treatment as the 'HOME' return-portal labels).
+        this.add.text(2500, 1420, 'FLOWLINE', {
+            fontSize: '18px',
+            color: '#7CFC00',
+            fontStyle: 'bold',
+        }).setOrigin(.5);
+        this.add.text(1500, 1120, 'WORLD 1', {
+            fontSize: '18px',
+            color: '#FF6600',
+            fontStyle: 'bold',
+        }).setOrigin(.5);
+
+        // One-shot transition guard — reset on every Home entry
+        // (setupPortals runs in create()).
+        //
+        // ROOT CAUSE of the portal freeze (found 2026-11-14): this overlap
+        // callback fires every physics step while the player stands in a
+        // portal, and each firing queues stop(Home) + start(target) — see
+        // Phaser's ScenePlugin.start, which queues BOTH ops. With the old
+        // portal pair 200px apart, a 115px-wide player body overlapped
+        // BOTH 140px boxes at once, so one step queued TWO starts:
+        // stop Home, start LevelFlow, stop Home (no-op), start World1.
+        // The second start's paired stop targets Home, never LevelFlow —
+        // so BOTH level scenes booted and ran at once: two physics
+        // worlds, two players, two tilemaps, and the shared UI scenes
+        // (PlayerUI/EscMenu/Inventory) re-init'd to the second player
+        // mid-flight. On a phone that reads as a hard freeze. The flag
+        // makes the first overlap win and ignores the rest; spreading
+        // the portals 1000px+ apart (with distinct tints and labels)
+        // makes the double overlap geometrically impossible too.
+        this._portalTransitioning = false;
         this.physics.add.overlap(this.player, this.portals, (player, portal) => {
+            if (this._portalTransitioning) return;
             if (portal.targetScene && this.scene.key !== portal.targetScene) {
+                this._portalTransitioning = true;
                 GameManager.useLastLocation = false;
                 // Leaving Home for a level starts a fresh run — clear any
                 // per-run World 1 checkpoint so the player spawns at the
