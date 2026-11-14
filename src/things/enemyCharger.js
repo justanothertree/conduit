@@ -127,14 +127,15 @@ export default class Charger extends BaseEnemy {
     // attacker, so a frontal hit's knockback points against our facing
     // (Math.sign(x) === -this.direction). Shield up + frontal = absorbed;
     // from behind, or shield down (mid-charge / recovering), = full damage.
-    TakeDamage(x, y, damage = 1, stunDuration = 300) {
+    // allowLifesteal passes straight through to BaseEnemy.TakeDamage.
+    TakeDamage(x, y, damage = 1, stunDuration = 300, allowLifesteal = true) {
         if (this.dead || !this.canDamage) return false;
         const frontal = x !== 0 && Math.sign(x) === -this.direction;
         if (frontal && !this.shieldDown) {
             this.flashShield();
             return true; // registered as a hit, deals nothing
         }
-        return super.TakeDamage(x, y, damage, stunDuration);
+        return super.TakeDamage(x, y, damage, stunDuration, allowLifesteal);
     }
 
     flashShield() {

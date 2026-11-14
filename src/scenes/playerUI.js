@@ -179,7 +179,7 @@ export default class PlayerUI extends Phaser.Scene {
         return Math.min(600, w < 520 ? w - 84 : w - 40);
     }
 
-    showBossBar(boss) {
+    showBossBar(boss, label = 'BOSS') {
         this.hideBossBar();
         this._boss = boss;
         const w = this.bossBarW();
@@ -189,7 +189,7 @@ export default class PlayerUI extends Phaser.Scene {
         this.bossBar = this.add.rectangle(cx - (w - 4) / 2, 28, w - 4, 16, 0xcc22cc, 1)
             .setOrigin(0, 0.5).setScrollFactor(0).setDepth(1001);
         this.bossBarWidth = w - 4;
-        this.bossText = this.add.text(cx, 6, 'BOSS', {
+        this.bossText = this.add.text(cx, 6, label, {
             fontSize: '18px',
             color: '#ff66ff',
             fontStyle: 'bold',

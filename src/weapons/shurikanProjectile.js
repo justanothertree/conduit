@@ -35,26 +35,36 @@ export default class ShurikanProjectile extends WeaponProjectile {
         if(this.visualOnly) return;
         if (!this.canHit(enemy)) return;
 
-        const velocity = this.body.velocity.clone().scale(.1);
+        // Scalar read of the body velocity — no per-hit Vector2 allocation
+        // (same pattern as Pickup.hit). TakeDamage only reads the numbers.
+        const vx = this.body.velocity.x * .1;
+        const vy = this.body.velocity.y * .1;
 
-        if (enemy.TakeDamage(velocity.x, velocity.y, this.damage(), stunDuration)) {
+        // Chain jumps never trigger Lifesteal (see BaseEnemy.TakeDamage):
+        // only the direct throw heals, and the 250ms throttle caps it.
+        if (enemy.TakeDamage(vx, vy, this.damage(), stunDuration, !this.isChain)) {
             playHitSound(this.scene, this.hitSoundId);
         }
 
-        if ((this.chainCount > 0)) {
+        if (this.chainCount > 0) {
             this.chainAttack(enemy);
-            this.setVelocity(0)
-            this.scene.time?.delayedCall(25, () =>{
-            this.destroy();
-
-            })
-        } else {
-            this.setVelocity(0)
-            this.scene.time?.delayedCall(25, () =>{
-            this.destroy();
-
-            })
         }
+
+        // Shard-shop Pierce line: pass through +N enemies per level
+        // instead of stopping at the first. canHit() records each hit in
+        // hitTargets, so the same enemy never re-triggers while we fly
+        // through it, and the 700ms cleanup in the constructor still
+        // destroys the shurikan.
+        const pierce = this.weapon?.shardPierce?.() ?? 0;
+        if ((this._pierced ?? 0) < pierce) {
+            this._pierced = (this._pierced ?? 0) + 1;
+            return; // keep flying
+        }
+
+        this.setVelocity(0)
+        this.scene.time?.delayedCall(25, () =>{
+            this.destroy();
+        })
     }
 
     bulletHit(target) {
@@ -115,6 +125,9 @@ export default class ShurikanProjectile extends WeaponProjectile {
             const { target } = validTargets[i];
             this.chainCount--;
             const chainShurikan = new ShurikanProjectile(this.scene, this.x, this.y, this.player, this.weapon, this.chainCount, 1, 1, false)
+            // Chain jumps are not direct hits — they never trigger
+            // Lifesteal (enemyHit passes !isChain to TakeDamage).
+            chainShurikan.isChain = true;
             chainShurikan.hitTargets.push(enemy);
             this.scene.weaponGroup.add(chainShurikan);
             // Same normalize-then-scale(1000) as before, in plain math:

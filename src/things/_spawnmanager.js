@@ -8,6 +8,7 @@ import Checkpoint from "./checkpoint.js"
 import Turret from "./enemyTurret.js"
 import Charger from "./enemyCharger.js"
 import Bomber from "./enemyBomber.js"
+import Miniboss from "./enemyMiniboss.js"
 import SunMan from "./enemySunman.js";
 import Coin from "./coin.js";
 import Booster from "./booster.js";
@@ -62,6 +63,10 @@ export default class SpawnManager {
             classType: Bomber,
             allowGravity: false,
         });
+        this.minibossGroup = this.scene.physics.add.group({
+            classType: Miniboss,
+            allowGravity: false,
+        });
         this.bulletGroup = this.scene.physics.add.group({ allowGravity: false });
         this.softBulletGroup = this.scene.physics.add.group({ allowGravity: false });
         this.itemGroup = this.scene.physics.add.group();
@@ -83,6 +88,7 @@ export default class SpawnManager {
             { group: this.turretGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.chargerGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.bomberGroup, handler: 'enemyHit', zap: true, walls: true },
+            { group: this.minibossGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.bulletGroup, handler: 'bulletHit', zap: false, walls: false },
             { group: this.softBulletGroup, handler: 'bulletHit', zap: false, walls: false },
             { group: this.itemGroup, handler: 'itemHit', zap: false, walls: true },
@@ -176,6 +182,27 @@ export default class SpawnManager {
         return boss;
     }
 
+    // World 1 mini-boss: the Bombardier (Miniboss class, 2 phases —
+    // bomb spreads, then aimed fans). A per-run set piece guarding the
+    // antechamber before the Iron Warden — unlike regular bombers it does
+    // not respawn.
+    spawnMiniboss(x, y, obj) {
+        const props = getProperty(obj);
+        const health = props?.health ?? Miniboss.MAX_HEALTH;
+        // Rematch: after the first kill the bounty flag is set, so any
+        // later spawn (level re-entry, or the arena re-entry trigger
+        // armed in die()) is hard mode — faster attacks, faster bullets.
+        const rematch = !!GameManager.flags.minibossRewardPaid;
+        let boss = this.minibossGroup.get(x, y);
+        if (boss) {
+            if (!boss.activate(x, y, health, rematch)) {
+                boss = this.minibossGroup.create();
+                boss.activate(x, y, health, rematch);
+            }
+        }
+        return boss;
+    }
+
     // World 1 checkpoint marker: records a per-run respawn point
     // (Checkpoint class). Static markers — recreated on every scene
     // create, no pooling.
@@ -254,6 +281,11 @@ export default class SpawnManager {
         // Create new if no usable turret
         turret = new Turret(this.scene, x, y, health);
         this.turretGroup.add(turret);
+        // Fresh spawns must activate too: the constructor can't call
+        // scaleCollision (the body doesn't exist until Group.add), so
+        // without this the turret kept its unscaled hitbox and skipped
+        // its 1.2s opening pause. Same order as the pooled path above.
+        turret.activate(x, y, health);
         turret.init();
         return turret;
     }
@@ -272,6 +304,10 @@ export default class SpawnManager {
         // Create new if no usable charger
         charger = new Charger(this.scene, x, y, health);
         this.chargerGroup.add(charger);
+        // Fresh spawns must activate too (see spawnTurret): without this
+        // the charger kept its unscaled hitbox and skipped its 1.5s
+        // opening pause.
+        charger.activate(x, y, health);
         charger.init();
         return charger;
     }
@@ -290,6 +326,10 @@ export default class SpawnManager {
         // Create new if no usable bomber
         bomber = new Bomber(this.scene, x, y, health);
         this.bomberGroup.add(bomber);
+        // Fresh spawns must activate too (see spawnTurret): without this
+        // the bomber kept the bat-sized hitbox instead of 40x40 and
+        // skipped its 1.5s opening pause.
+        bomber.activate(x, y, health);
         bomber.init();
         return bomber;
     }

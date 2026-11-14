@@ -48,25 +48,33 @@ export default class WeaponShurikan extends WeaponBase {
 
         // Shard-shop Multishot line: +1 shurikan per throw per level,
         // fanned out at ±14° per extra (alternating sides). The extras
-        // are full projectiles (same chain/damage/targets); like the
-        // chain shurikens they are local-only — the network emit below
-        // covers the main throw, same as before.
+        // are full projectiles (same chain/damage/targets). They ride
+        // along on the same 'shurikanthrow' emit as extra velocities,
+        // so other players see the fan too — the receiver (GhostPlayer)
+        // spawns them visual-only, and senders without the field
+        // (stale builds) just send none. If the server strips unknown
+        // fields the extras silently don't render remotely; the main
+        // throw is unaffected.
         const extras = this.shardMultishot();
+        const extraVelocities = [];
         for (let i = 0; i < extras; i++) {
             const side = i % 2 === 0 ? 1 : -1;
             const step = Math.floor(i / 2) + 1;
             const a = side * step * 14 * Math.PI / 180;
             const cos = Math.cos(a), sin = Math.sin(a);
+            const vx = vector.x * cos - vector.y * sin;
+            const vy = vector.x * sin + vector.y * cos;
+            extraVelocities.push({ x: vx, y: vy });
             const extra = new ShurikanProjectile(this.scene, start.x, start.y, this.player,
                 this,
                 this.chainCount,
                 this.baseDamage,
                 this.initialTargets,
             );
-            extra.setVelocity(vector.x * cos - vector.y * sin, vector.x * sin + vector.y * cos);
+            extra.setVelocity(vx, vy);
         }
 
-        this.player.network.socket.emit('shurikanthrow', { start, direction })
+        this.player.network.socket.emit('shurikanthrow', { start, direction, extras: extraVelocities })
 
         this.playThrowSound();
     }

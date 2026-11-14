@@ -19,7 +19,7 @@ Layout (tiles, 32px; map is 140x80, y grows downward):
                              the far shore, checkpoint 2 at the exit
   D  Charger den   x 74-106   open arena: 3 chargers, 2 turrets on ledges,
                              2 bombers overhead, cover blocks, antechamber
-                             with checkpoint 3 and a 3rd bomber
+                             with checkpoint 3 and the Bombardier mini-boss
   E  Boss arena    x 108-130  Iron Warden (boss 2), cover, ground doorway in
                              the left wall, climb-out over the right wall
   F  Vault         x 131-138  finish line, Home return portal, card, shard
@@ -185,7 +185,9 @@ shard(97, 64)                            # w1-08: east corner
 rect(walls, 99, 70, 106, 79, STONE)
 add("spawnText", 101, 62, text="BOSS AHEAD")
 add("spawnDashBuff", 103, 66)
-add("spawnBomber", 102, 56)              # bomber 3: over the antechamber
+# The Bombardier mini-boss guards the antechamber (replaces the 3rd
+# bomber — the room is the mini-boss's arena, and it drops bombs anyway).
+add("spawnMiniboss", 102, 58, props=[prop("health", "int", 250)])
 checkpoint(104, 66)                      # checkpoint 3: boss antechamber
 
 # ---- E: boss arena (Iron Warden)
@@ -317,7 +319,7 @@ print(f"wrote {out}: {len(objects)} objects, {_shard_n[0]} shards, "
 errors = []
 names = {o["name"] for o in objects}
 KNOWN = {"spawnPlayer", "spawnCoin", "spawnDuck", "spawnBat", "spawnSunman",
-         "spawnBoss", "spawnBoss2", "spawnShard", "spawnCard", "spawnBooster",
+         "spawnBoss", "spawnBoss2", "spawnMiniboss", "spawnShard", "spawnCard", "spawnBooster",
          "spawnDashBuff", "spawnPortal", "spawnSourceBlock", "spawnFinishLine",
          "spawnText", "spawnTurret", "spawnCharger", "spawnBomber",
          "spawnCheckpoint"}
@@ -350,19 +352,22 @@ for req in ["spawnPlayer", "spawnFinishLine", "spawnBoss2"]:
     if counts.get(req, 0) != 1:
         errors.append(f"expected 1 {req}, got {counts.get(req, 0)}")
 for name, want in [("spawnTurret", 5), ("spawnCharger", 4),
-                   ("spawnBomber", 3), ("spawnCheckpoint", 4)]:
+                   ("spawnBomber", 2), ("spawnMiniboss", 1),
+                   ("spawnCheckpoint", 4)]:
     if counts.get(name, 0) != want:
         errors.append(f"expected {want} {name}, got {counts.get(name, 0)}")
 # enemies must not share a tile with any pre-existing object
-# (bombers fly, so they skip the solid-ground check above but still
-# must not share a tile)
+# (bombers and the mini-boss fly, so they skip the solid-ground check
+# above but still must not share a tile)
 new_tiles = [(o["name"], o["x"] // 32, o["y"] // 32)
              for o in objects if o["name"] in ("spawnTurret", "spawnCharger",
                                                "spawnBomber", "spawnBoss2",
+                                               "spawnMiniboss",
                                                "spawnCheckpoint")]
 other_tiles = {(o["x"] // 32, o["y"] // 32)
                for o in objects if o["name"] not in ("spawnTurret", "spawnCharger",
                                                      "spawnBomber", "spawnBoss2",
+                                                     "spawnMiniboss",
                                                      "spawnCheckpoint")}
 for name, tx, ty in new_tiles:
     if (tx, ty) in other_tiles:

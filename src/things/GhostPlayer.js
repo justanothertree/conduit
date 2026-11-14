@@ -323,14 +323,22 @@ export default class GhostPlayer extends Phaser.GameObjects.Container {
   }
 
   ghostShurikan(shotInfo) {
-    const { start, direction } = shotInfo;
+    const { start, direction, extras = [] } = shotInfo;
     const speed = 1000;
 
-    const velocity = new Phaser.Math.Vector2(direction.x, direction.y).scale(speed);
-
+    // Scalar multiply — no per-shot Vector2 allocation (same pattern as
+    // the projectile enemyHit paths). setVelocity only reads the numbers.
     const shurikan = new ShurikanProjectile(this.scene, start.x, start.y, this.scene.player, null, 0, 1, 3, true);
-    shurikan.setVelocity(velocity.x, velocity.y);
+    shurikan.setVelocity(direction.x * speed, direction.y * speed);
     shurikan.setAlpha(.5);
+    // Multishot fan: the sender includes the extra velocities, so the
+    // whole fan renders — visual-only, like the main ghost shurikan.
+    // Senders without the field (stale builds) send none.
+    for (const ev of extras) {
+      const extra = new ShurikanProjectile(this.scene, start.x, start.y, this.scene.player, null, 0, 1, 3, true);
+      extra.setVelocity(ev.x, ev.y);
+      extra.setAlpha(.5);
+    }
   }
 
   makeChatBubble(message) {

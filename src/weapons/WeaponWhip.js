@@ -77,11 +77,6 @@ export default class WeaponWhip extends WeaponBase {
         // Optional: add some damping (tiny amount, not instant)
         this.angularVelocity *= 0.9995;
 
-        // --- Advance angle ---
-        // if (Math.abs(this.angularVelocity) > 0.001) {
-        //     this.angle += this.angularVelocity * scaledDelta;
-        // }
-
         // --- Compute velocity ---
         const vx = this.angularVelocity * dist * -Math.sin(this.angle);
         const vy = this.angularVelocity * dist * Math.cos(this.angle);

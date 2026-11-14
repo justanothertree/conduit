@@ -1,3 +1,4 @@
+import { playHitSound } from "../things/soundUtils.js";
 import WeaponProjectile from "./_baseWeaponProjectile.js";
 
 export default class DarkOrbProjectile extends WeaponProjectile {
@@ -65,6 +66,22 @@ export default class DarkOrbProjectile extends WeaponProjectile {
         this.hitTargets = [];
         this.detonated = false;
         this.detonateTime = null;
+    }
+
+    // Aura-spawned orbs (no owning weapon — AuraZap constructs them with
+    // weapon undefined) are aura damage and never trigger Lifesteal. An
+    // equipped dark orb is a direct weapon hit and heals normally.
+    enemyHit(enemy, stunDuration = 300) {
+        if (!this.canHit(enemy)) return;
+
+        // Scalar read of the body velocity — no per-hit Vector2 allocation
+        // (same pattern as Pickup.hit). TakeDamage only reads the numbers.
+        const vx = this.body.velocity.x * .2;
+        const vy = this.body.velocity.y * .2;
+
+        if (enemy.TakeDamage(vx, vy, this.damage(), stunDuration, !!this.weapon)) {
+            playHitSound(this.scene, this.hitSoundId);
+        }
     }
 
     preUpdate(time, delta) {

@@ -42,9 +42,12 @@ export default class WeaponProjectile extends Phaser.Physics.Arcade.Sprite {
     enemyHit(enemy, stunDuration = 300) {
         if (!this.canHit(enemy)) return;
 
-        const velocity = this.body.velocity.clone().scale(.2);
+        // Scalar read of the body velocity — no per-hit Vector2 allocation
+        // (same pattern as Pickup.hit). TakeDamage only reads the numbers.
+        const vx = this.body.velocity.x * .2;
+        const vy = this.body.velocity.y * .2;
 
-        if (enemy.TakeDamage(velocity.x, velocity.y, this.damage(), stunDuration)) {
+        if (enemy.TakeDamage(vx, vy, this.damage(), stunDuration)) {
             playHitSound(this.scene, this.hitSoundId);
             return;
         }

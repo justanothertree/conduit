@@ -339,11 +339,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
 
         this.spectatePlayer(true);
         this.scene.physics?.pause(); // Stop physics
-        // this.scene.time.delayedCall(10000, () => {
-        //     //this.scene.scene.restart()
-        //     this.gameOverText.destroy();
-        //     this.respawnPlayer()
-        // });
     }
 
     spectatePlayer(spectate = false, index = 0) {
@@ -351,16 +346,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     respawnPlayer() {
-        // const respawnLoc = this.scene.tileObjects?.objects.find(obj => obj.name === 'spawnPlayer');
-        // this.gameOverText?.destroy();
-        // this.setPosition(respawnLoc?.x, respawnLoc?.y)
-        // this.setVelocity(0, 0);
-        // this.setStats();
-        // this.clearTint();
-        // this.alive = true;
-        // this.scene.setupRaceTimer();
-        // this.spectatePlayer(false);
-        // this.scene.physics?.resume();
         // (Null guards: dying with an empty weapon slot used to throw here
         // and freeze the game — same class as the WHIP null-fire freeze.)
         this.leftWeapon?.release();
@@ -788,21 +773,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         }
 
         this.isCrouch = false;
-
-        // const oldHeight = this.body.height;
-        // const newHeight = this.baseHitBoxSize.y;
-        // const heightDifference = newHeight - oldHeight;
-
-        // // Shift body up to keep feet fixed
-        // this.body.y -= heightDifference;
-
-        // this.setSize(115, newHeight);
-        // this.setOffset(70, this.baseHitBoxSize.yo);
-
-        // // Force immediate collision resolution with the floor
-        // this.scene.physics.world.collide(this, this.scene.walls);
-
-        // this.body.updateFromGameObject();
     }
 
     hitLaser(hit) {

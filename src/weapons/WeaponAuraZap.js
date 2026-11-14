@@ -97,6 +97,13 @@ export default class AuraZap extends WeaponBase {
         this.player.network.socket.emit('playerLevel', GameManager.power);
     }
 
+    // Aura ticks are automatic damage, not direct weapon hits — they
+    // never trigger Lifesteal (see BaseEnemy.TakeDamage). The zap still
+    // damages through the shared enemyHit path, just without the heal.
+    enemyHit(target, stunDuration = 300, hit) {
+        super.enemyHit(target, stunDuration, hit, false);
+    }
+
     fire() {
         if (!this.player.alive) return;
         const groups = this.scene.attackableGroups;

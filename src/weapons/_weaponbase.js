@@ -61,6 +61,14 @@ export default class WeaponBase {
         return GameManager.upgrades?.shardShop?.multishot ?? 0;
     }
 
+    // Shard-shop Pierce line: shurikans pass through +1 enemy per
+    // purchased level (up to +3) instead of stopping at the first.
+    // Read live from the save; ShurikanProjectile counts pierced hits
+    // per projectile.
+    shardPierce() {
+        return GameManager.upgrades?.shardShop?.pierce ?? 0;
+    }
+
     damageScaling() {
         const money = GameManager.power.money;
         if (!money) return 1;
@@ -179,18 +187,11 @@ export default class WeaponBase {
                 // skip far targets
                 if (distanceToTarget > data.distance + 200) return;
 
-                // skip out of cone targets
-                // const dot = data.direction.clone().dot(toTarget.normalize());
-                // console.log(dot);
-                // if (dot < 0.5) return;
-
                 // line trace
                 if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, RectRay)) {
                     const hitRec = Phaser.Geom.Rectangle.Intersection(bounds, RectRay, this._hitRect);
                     const hit = { x: hitRec.centerX, y: hitRec.centerY };
                     this[handler]?.(target, true, hit);
-                    // this.scene.graphics.fillStyle(0x00ff00, 0.5);
-                    // this.scene.graphics.fillRectShape(target.getBounds());
                 }
             });
         });
@@ -231,13 +232,15 @@ export default class WeaponBase {
     platformHit(plat) {
     }
 
-    enemyHit(target, stunDuration = 300, hit) {
+    // allowLifesteal=false for hits that must never heal (aura ticks —
+    // see WeaponAuraZap's override). Direct weapon hits pass the default.
+    enemyHit(target, stunDuration = 300, hit, allowLifesteal = true) {
         if (!this.canHit(target)) return;
 
         // Compute the knockback once: the old code called getKnockBack twice
         // for the same hit.
         const knockback = this.getKnockBack(target);
-        if (target.TakeDamage(knockback.x, knockback.y, this.damage(), stunDuration)) {
+        if (target.TakeDamage(knockback.x, knockback.y, this.damage(), stunDuration, allowLifesteal)) {
             playHitSound(this.scene, this.hitSoundId);
             //this.scene.add.particles()
         }

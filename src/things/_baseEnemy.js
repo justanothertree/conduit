@@ -84,19 +84,32 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         this.healthBar.y = this.y - this.displayHeight / 2 - 6;
     }
 
-    TakeDamage(x, y, damage = 1, stunDuration = 300) {
+    // allowLifesteal=false for hits that must never heal: chain-shurikan
+    // jumps and aura ticks (WeaponAuraZap / aura-spawned dark orbs). Only
+    // direct weapon hits feed Lifesteal.
+    TakeDamage(x, y, damage = 1, stunDuration = 300, allowLifesteal = true) {
         if (this.dead || !this.canDamage) return false;
         if (!this.createdHealthBar) this.createHealthBar();
 
         const ok = this.applyDamage(x, y, damage, stunDuration);
 
-        // Shard-shop Lifesteal line: landing a hit on a boss feeds a
-        // little health back (+1 HP per hit per level). Bosses only
-        // (name 'boss'/'boss2') — regular enemies don't trigger it.
-        if (ok) {
+        // Shard-shop Lifesteal line: landing a direct hit on a boss feeds
+        // a little health back (+1 HP per hit per level). Bosses only
+        // (name 'boss'/'boss2'/'miniboss') — regular enemies don't
+        // trigger it. Capped at one heal per 250ms: without the cap,
+        // Multishot + chain + aura ticks healed ~12 HP per throw and
+        // bosses became unlosable, and every heal also fired an
+        // updateHealth socket message. The throttle lives on the player
+        // (one heal stream per player, not per enemy).
+        if (ok && allowLifesteal) {
             const lvl = GameManager.upgrades?.shardShop?.lifesteal ?? 0;
-            if (lvl > 0 && (this.name === 'boss' || this.name === 'boss2')) {
-                this.player?.adjustHealth?.(lvl);
+            if (lvl > 0 && (this.name === 'boss' || this.name === 'boss2' || this.name === 'miniboss')) {
+                const player = this.player;
+                const now = this.scene?.time?.now ?? 0;
+                if (player && now - (player._lifestealLastHeal ?? -1e9) >= 250) {
+                    player._lifestealLastHeal = now;
+                    player.adjustHealth?.(lvl);
+                }
             }
         }
 
