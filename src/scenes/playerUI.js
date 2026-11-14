@@ -180,7 +180,20 @@ export default class PlayerUI extends Phaser.Scene {
     }
 
     showBossBar(boss, label = 'BOSS') {
-        this.hideBossBar();
+        // Two bosses can be live at once (the Bombardier sits ~544px
+        // from the Iron Warden, both inside the 900px bar range): only
+        // the nearest active boss owns the bar, so the Warden's bar
+        // can't take over the mini-boss fight. Returns whether this boss
+        // owns the bar now — callers keep their barVisible flag in sync
+        // with it. A dead owner's bar never blocks a live boss.
+        if (this._boss && this._boss !== boss) {
+            const curDead = this._boss.dead;
+            const curD = this._boss.distanceToPlayer?.() ?? Infinity;
+            const newD = boss.distanceToPlayer?.() ?? Infinity;
+            if (!curDead && newD >= curD) return false;
+        }
+        if (this._boss === boss) return true;
+        this._destroyBossBar();
         this._boss = boss;
         const w = this.bossBarW();
         const cx = this.bossBarCx();
@@ -197,6 +210,7 @@ export default class PlayerUI extends Phaser.Scene {
             strokeThickness: 4,
         }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(1001);
         this.updateBossBar();
+        return true;
     }
 
     updateBossBar() {
@@ -208,8 +222,17 @@ export default class PlayerUI extends Phaser.Scene {
         this.bossBar.setScale(frac, 1);
     }
 
-    hideBossBar() {
+    hideBossBar(boss) {
+        // A boss only hides the bar it owns: the Bombardier's death
+        // used to hide the Warden's bar mid-fight. A no-arg call (level
+        // init, or the dead-owner sweep in updateBossBar) still clears
+        // unconditionally.
+        if (boss && this._boss && this._boss !== boss) return;
         this._boss = null;
+        this._destroyBossBar();
+    }
+
+    _destroyBossBar() {
         this.bossBarBg?.destroy();
         this.bossBar?.destroy();
         this.bossText?.destroy();

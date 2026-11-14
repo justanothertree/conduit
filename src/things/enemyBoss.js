@@ -79,6 +79,14 @@ export default class Boss extends BaseEnemy {
         this.patrol(time);      // inherited ground patrol (uses phase speed)
         this.tickAttacks();
         this.updateBossBarVisibility();
+        // Intro: the name card only — Flowline's arena has no single
+        // doorway to lock (open arena), so no lock rects here. The card
+        // is the shared part; the lock stays with the World 1 bosses,
+        // whose rooms have exits worth sealing.
+        this.tryBossIntro('FLOWLINE GUARDIAN', 'END OF THE FLOWLINE',
+            this.player && this.arenaLeft && this.arenaRight
+                && this.player.x > this.arenaLeft
+                && this.player.x < this.arenaRight);
     }
 
     // Face the player without touching patrol's speed logic.
@@ -102,6 +110,10 @@ export default class Boss extends BaseEnemy {
 
     activate(x, y, health = Boss.MAX_HEALTH, rematch = false) {
         super.activate(x, y, health);
+        // Home position: the first spawn point. Rematches always respawn
+        // and center here — the boss used to respawn where it died,
+        // drifting a little further from its arena every rematch.
+        if (this.homeX === undefined) { this.homeX = x; this.homeY = y; }
         this.setScale(.75);
         this.setTint(0xcc55ff); // activate() clears tint
         this.scaleCollision(60, 60); // body exists now (in the physics world)
@@ -132,6 +144,9 @@ export default class Boss extends BaseEnemy {
         // ground below the spawn point (computed from the walls layer, so no
         // tilemap edits needed) and derive the arena bounds for movement.
         this.snapToGround(x, y);
+        // A new life gets a fresh intro (the card re-arms on rematch
+        // respawns too).
+        this.introShown = false;
         this.phase = 1;
         this.fireRate = 2500 * this.rateMult;
         this.speed = 160;
@@ -206,11 +221,13 @@ export default class Boss extends BaseEnemy {
         const ui = this.scene.player?.playerUI;
         if (!ui) return;
         const close = this.player && this.distanceToPlayer() < 900;
-        if (close && !this.barVisible) {
-            ui.showBossBar(this);
-            this.barVisible = true;
+        // showBossBar is nearest-wins and reports whether this boss owns
+        // the bar now; retry while close so a boss that lost the bar to
+        // a nearer one retakes it when that fight ends or moves away.
+        if (close && (!this.barVisible || ui._boss !== this)) {
+            this.barVisible = ui.showBossBar(this, 'FLOWLINE GUARDIAN');
         } else if (!close && this.barVisible) {
-            ui.hideBossBar();
+            ui.hideBossBar(this);
             this.barVisible = false;
         }
     }
@@ -399,7 +416,7 @@ export default class Boss extends BaseEnemy {
         // with the payout.
         const reward = this.rematch ? 100 : (GameManager.flags.bossRewardPaid ? 50 : 500);
         GameManager.flags.bossRewardPaid = true;
-        this.scene.player?.playerUI?.hideBossBar();
+        this.scene.player?.playerUI?.hideBossBar(this);
         this.barVisible = false;
         this.dead = true;
         player.updateMoney(reward);
@@ -407,8 +424,8 @@ export default class Boss extends BaseEnemy {
         // Rematch: leaving the arena and coming back re-spawns the boss in
         // hard mode (see armRematchTrigger). First-kill loot is flag-guarded,
         // so a rematch can never pay it twice.
-        this.armRematchTrigger(this.x, this.y,
-            () => this.scene.spawnManager?.spawnBoss(this.x, this.y));
+        this.armRematchTrigger(this.homeX, this.homeY,
+            () => this.scene.spawnManager?.spawnBoss(this.homeX, this.homeY));
         this.emit('die', player);
         this.deactivate();
     }
@@ -442,7 +459,7 @@ export default class Boss extends BaseEnemy {
         this.barVisible = false;
         this.windingUp = false;
         this.volleyGen++; // invalidate any pending wind-up completions
-        this.scene?.player?.playerUI?.hideBossBar();
+        this.scene?.player?.playerUI?.hideBossBar(this);
         super.deactivate();
     }
 }

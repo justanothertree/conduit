@@ -25,7 +25,7 @@ export default class World1 extends BaseGame {
 
     create() {
         this.setupSky();
-        this.setupWorld(0, 0, 4480, 2560);
+        this.setupWorld(0, 0, 5376, 2560);
         this.setupPlayer();
         this.setupGroups();
         this.setupTileMap('tilemapWorld1');
@@ -53,7 +53,7 @@ export default class World1 extends BaseGame {
         if (!this.portals) {
             this.portals = this.physics.add.staticGroup();
         }
-        const portal = this.portals.create(4224, 2048, 'portal3')
+        const portal = this.portals.create(4992, 2048, 'portal3')
             .setScale(.2)
             .play('portal3')
             .setTint(0x7CFC00);
@@ -76,7 +76,7 @@ export default class World1 extends BaseGame {
             }
         });
 
-        this.add.text(4224, 1968, 'HOME', {
+        this.add.text(4992, 1968, 'HOME', {
             fontSize: '18px',
             color: '#7CFC00',
             fontStyle: 'bold',

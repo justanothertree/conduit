@@ -9,6 +9,8 @@ import Turret from "./enemyTurret.js"
 import Charger from "./enemyCharger.js"
 import Bomber from "./enemyBomber.js"
 import Miniboss from "./enemyMiniboss.js"
+import Swarmer from "./enemySwarmer.js";
+import Spitter from "./enemySpitter.js";
 import SunMan from "./enemySunman.js";
 import Coin from "./coin.js";
 import Booster from "./booster.js";
@@ -67,6 +69,12 @@ export default class SpawnManager {
             classType: Miniboss,
             allowGravity: false,
         });
+        this.swarmerGroup = this.scene.physics.add.group({
+            classType: Swarmer,
+        });
+        this.spitterGroup = this.scene.physics.add.group({
+            classType: Spitter,
+        });
         this.bulletGroup = this.scene.physics.add.group({ allowGravity: false });
         this.softBulletGroup = this.scene.physics.add.group({ allowGravity: false });
         this.itemGroup = this.scene.physics.add.group();
@@ -88,6 +96,8 @@ export default class SpawnManager {
             { group: this.turretGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.chargerGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.bomberGroup, handler: 'enemyHit', zap: true, walls: true },
+            { group: this.swarmerGroup, handler: 'enemyHit', zap: true, walls: true },
+            { group: this.spitterGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.minibossGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.bulletGroup, handler: 'bulletHit', zap: false, walls: false },
             { group: this.softBulletGroup, handler: 'bulletHit', zap: false, walls: false },
@@ -332,6 +342,54 @@ export default class SpawnManager {
         bomber.activate(x, y, health);
         bomber.init();
         return bomber;
+    }
+
+    // World 1 swarmer pack: one tilemap object spawns a cluster of three
+    // (offsets ±48px, one tile apart), so the map stays readable — one
+    // marker per pack — while the fight gets three fast bodies. Pooled
+    // like the turret/charger: each swarmer is its own group member.
+    spawnSwarmer(x, y, obj, health = 3, isRemote = false, id = null) {
+        const props = getProperty(obj);
+        health = props?.health ?? health;
+        const pack = [];
+        for (const dx of [-48, 0, 48]) {
+            let swarmer = this.swarmerGroup.getFirst(false);
+            if (swarmer && swarmer.activate(x + dx, y, health)) {
+                swarmer.init();
+            } else {
+                swarmer = new Swarmer(this.scene, x + dx, y, health);
+                this.swarmerGroup.add(swarmer);
+                // Fresh spawns must activate too (see spawnTurret): without
+                // this the swarmer kept its unscaled hitbox and skipped its
+                // opening setup.
+                swarmer.activate(x + dx, y, health);
+                swarmer.init();
+            }
+            pack.push(swarmer);
+        }
+        return pack;
+    }
+
+    // World 1 walking ranged duck: slow patrol, stops to spit an aimed
+    // fireball (Spitter class). Pooled like the turret/charger.
+    spawnSpitter(x, y, obj, health = 12, isRemote = false, id = null) {
+        const props = getProperty(obj);
+        health = props?.health ?? health;
+        let spitter = this.spitterGroup.getFirst(false);
+
+        if (spitter && spitter.activate(x, y, health)) {
+            spitter.init();
+            return spitter;
+        }
+        // Create new if no usable spitter
+        spitter = new Spitter(this.scene, x, y, health);
+        this.spitterGroup.add(spitter);
+        // Fresh spawns must activate too (see spawnTurret): without this
+        // the spitter kept its unscaled hitbox and skipped its 1.5s
+        // opening pause.
+        spitter.activate(x, y, health);
+        spitter.init();
+        return spitter;
     }
 
     spawnBullets(x, y, amount) {

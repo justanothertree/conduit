@@ -60,6 +60,10 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         this.stunned = false;
         this.iFrame = false;
         this.hitCD = false;
+        // Shard-shop Second Wind: per-life flag, reset with the player on
+        // respawn (the scene restart rebuilds the player, so a fresh
+        // object means a fresh flag — this init just makes it explicit).
+        this._secondWindUsed = false;
         this.spawnBuffer = true;
         this.meditateTimer = 0;
 

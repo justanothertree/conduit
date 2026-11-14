@@ -8,6 +8,14 @@ import Bullet from "./bullet.js";
 // keep moving sideways. It never touches the ground, so melee has to
 // reach up (or the shurikan does the work).
 //
+// Visibility: bombers hover high enough to sit above a phone screen's
+// top edge and go unnoticed until a bomb lands. A ground shadow marker
+// (dark ellipse with an orange ring) sits on the floor directly below
+// each bomber while the player is in its drop range, so the threat
+// reads on the ground the player is actually looking at — the bomber
+// itself can stay high. The marker is purely visual: it never damages,
+// blocks, or changes the drop telegraph.
+//
 // Reuses existing mechanics only: bat flight (allowGravity false, same
 // 'bat' art, orange tint so it reads as "explosive"), the turret's
 // fireball pattern (Bullet + 'fireballsheet' + softBulletGroup, aimed
@@ -28,6 +36,8 @@ export default class Bomber extends BaseEnemy {
         this.nextDrop = 0;
         this.windingUp = false;
         this.baseY = y;           // hover anchor — set properly in activate()
+        this.groundTop = null;    // floor below the bomber — scanned in activate()
+        this.marker = null;       // ground shadow marker (created in activate)
         this.setTint(0xff8800);   // orange — reads as "explosive" next to bats
         // NOTE: scaleCollision is NOT called here — this.body is null until
         // the sprite joins the physics world (Group.add). It's called in
@@ -49,7 +59,34 @@ export default class Bomber extends BaseEnemy {
         this.baseY = y;
         this.nextDrop = this.scene.time.now + 1500; // a beat before it starts
         this.windingUp = false;
+        // Ground shadow: scan the walls layer below the spawn point for
+        // the floor (same pattern as the mini-boss's groundTop scan) and
+        // put a dark ellipse with an orange ring on it, tracking the
+        // bomber's x. No floor within 900px (over a pit) means no marker
+        // rather than a marker floating in the void.
+        this.groundTop = null;
+        const walls = this.scene.walls;
+        if (walls) {
+            for (let py = y; py < y + 900; py += 8) {
+                const tile = walls.getTileAtWorldXY(x, py);
+                if (tile && tile.index !== -1) { this.groundTop = tile.pixelY; break; }
+            }
+        }
+        if (!this.marker && this.groundTop !== null) {
+            this.marker = this.scene.add.ellipse(x, this.groundTop - 2, 44, 12, 0x000000, 0.35)
+                .setStrokeStyle(2, 0xff8800, 0.8)
+                .setDepth(1)
+                .setVisible(false);
+        }
         return true;
+    }
+
+    deactivate() {
+        // The marker is a plain scene object, not a pooled child — destroy
+        // it here so a deactivated bomber leaves no stale shadow behind.
+        // activate() recreates it on the next spawn.
+        if (this.marker) { this.marker.destroy(); this.marker = null; }
+        super.deactivate();
     }
 
     // After the base hit-flash clears the tint, restore the orange.
@@ -61,6 +98,15 @@ export default class Bomber extends BaseEnemy {
         super.preUpdate(time, delta);
         if (this.dead || this.stunned) return;
         this.hover(time);
+        // The shadow tracks the bomber's x and only shows while the player
+        // is in drop range — the same window the bomber can actually
+        // attack in, so the marker appears exactly when it matters and
+        // never clutters a room the player is just walking through.
+        if (this.marker) {
+            const near = this.player && this.distanceToPlayer() < this.dropRange;
+            this.marker.setVisible(!!near);
+            if (near) this.marker.x = this.x;
+        }
         if (!this.player || this.windingUp) return;
         const now = this.scene.time.now;
         if (now >= this.nextDrop && this.distanceToPlayer() < this.dropRange) {

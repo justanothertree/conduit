@@ -323,7 +323,7 @@ export default class GhostPlayer extends Phaser.GameObjects.Container {
   }
 
   ghostShurikan(shotInfo) {
-    const { start, direction, extras = [] } = shotInfo;
+    const { start, direction } = shotInfo;
     const speed = 1000;
 
     // Scalar multiply — no per-shot Vector2 allocation (same pattern as
@@ -334,7 +334,12 @@ export default class GhostPlayer extends Phaser.GameObjects.Container {
     // Multishot fan: the sender includes the extra velocities, so the
     // whole fan renders — visual-only, like the main ghost shurikan.
     // Senders without the field (stale builds) send none.
+    // Extras are untrusted network data (another player's client sends
+    // them): cap at 3 and drop anything that isn't a finite x/y pair, so
+    // a malformed fan can't throw here or spawn NaN-velocity projectiles.
+    const extras = Array.isArray(shotInfo.extras) ? shotInfo.extras.slice(0, 3) : [];
     for (const ev of extras) {
+      if (!ev || !Number.isFinite(ev.x) || !Number.isFinite(ev.y)) continue;
       const extra = new ShurikanProjectile(this.scene, start.x, start.y, this.scene.player, null, 0, 1, 3, true);
       extra.setVelocity(ev.x, ev.y);
       extra.setAlpha(.5);

@@ -40,11 +40,13 @@ export default class Boss2 extends BaseEnemy {
     static MAX_SHOTS = 36; // concurrent boss projectiles — phone-friendly cap
 
     constructor(scene, x, y, health = Boss2.MAX_HEALTH) {
-        super(scene, x, y, 'duck', health);
+        super(scene, x, y, 'warden', health);
         this.name = 'boss2';
 
         this.setScale(.8);
-        this.setTint(0xff33cc); // magenta — reads as "boss", distinct from the purple Flowline boss
+        // No base tint: the Warden art is already a distinct grey/orange
+        // mech (a magenta tint would wash its furnace out). Phase colors
+        // (orange/red) still apply via restoreTint; phase 1 is untinted.
 
         this.damage = 10;
         this.speed = 140;
@@ -94,6 +96,19 @@ export default class Boss2 extends BaseEnemy {
         this.patrol(time);      // inherited ground patrol (uses phase speed)
         this.tickAttacks();
         this.updateBossBarVisibility();
+        // Intro: once the player steps into the arena (a step past the
+        // doorway, so the lock barrier appears behind them, never on top
+        // of them). The lock seals the ground doorway AND caps the right
+        // wall above its climb-out — the fight is a commitment until the
+        // Warden dies, not a room the player can stroll out of.
+        this.tryBossIntro('THE IRON WARDEN', 'WARDEN OF WORLD 1',
+            this.player && this.arenaLeft && this.arenaRight
+                && this.player.x > this.arenaLeft + 96
+                && this.player.x < this.arenaRight,
+            [
+                { x: this.arenaLeft - 64, y: this.groundTop - 740, w: 64, h: 740 },
+                { x: this.arenaRight, y: 1100, w: 64, h: this.groundTop - 256 - 1100 },
+            ]);
     }
 
     facePlayer() {
@@ -113,8 +128,11 @@ export default class Boss2 extends BaseEnemy {
 
     activate(x, y, health = Boss2.MAX_HEALTH, rematch = false) {
         super.activate(x, y, health);
+        // Home position: the first spawn point. Rematches always respawn
+        // and center here — the boss used to respawn where it died,
+        // drifting a little further from its arena every rematch.
+        if (this.homeX === undefined) { this.homeX = x; this.homeY = y; }
         this.setScale(.8);
-        this.setTint(0xff33cc); // activate() clears tint
         this.scaleCollision(64, 64); // body exists now (in the physics world)
         // Rematch (hard mode): faster volleys and faster bullets. HP and
         // patrol speeds are deliberately unchanged — the fight gets
@@ -144,6 +162,11 @@ export default class Boss2 extends BaseEnemy {
         this.snapToGround(x, y);
         this.gen++; // invalidate any delayed volleys from a previous life
         this.phase = 1;
+        // A new life gets a fresh intro (the card + lock re-arm on
+        // rematch respawns too); any lock left over from a previous life
+        // is cleared first.
+        this.introShown = false;
+        this.unlockBossArena();
         this.fireRate = 2800 * this.rateMult;
         this.speed = 140;
         this.volleyKind = 0;
@@ -169,11 +192,11 @@ export default class Boss2 extends BaseEnemy {
             }
         }
         if (groundTop === null) {
-            this.setPosition(3808, 2170); // mid-arena, just above the floor
+            this.setPosition(4352, 2170); // mid-arena, just above the floor
             this.setVelocity(0, 0);
             this.groundTop = 2240;
-            this.arenaLeft = 3456;
-            this.arenaRight = 4096;
+            this.arenaLeft = 3840;
+            this.arenaRight = 4800;
             return;
         }
         const halfH = (this.body?.height ?? 64) / 2;
@@ -210,11 +233,13 @@ export default class Boss2 extends BaseEnemy {
         const ui = this.scene.player?.playerUI;
         if (!ui) return;
         const close = this.player && this.distanceToPlayer() < 900;
-        if (close && !this.barVisible) {
-            ui.showBossBar(this);
-            this.barVisible = true;
+        // showBossBar is nearest-wins and reports whether this boss owns
+        // the bar now; retry while close so a boss that lost the bar to
+        // a nearer one retakes it when that fight ends or moves away.
+        if (close && (!this.barVisible || ui._boss !== this)) {
+            this.barVisible = ui.showBossBar(this, 'THE IRON WARDEN');
         } else if (!close && this.barVisible) {
-            ui.hideBossBar();
+            ui.hideBossBar(this);
             this.barVisible = false;
         }
     }
@@ -254,13 +279,19 @@ export default class Boss2 extends BaseEnemy {
     }
 
     // After BaseEnemy's hit-flash clears the tint, restore the phase color.
+    // Phase 1 is untinted — the Warden art carries its own identity.
     restoreTint() {
         if (this.overloading) return; // don't cut the white overload flash short
-        this.setTint(this.phase === 2 ? 0xff8800 : this.phase === 3 ? 0xff2222 : 0xff33cc);
+        if (this.phase === 1) { this.setTint(); return; }
+        this.setTint(this.phase === 2 ? 0xff8800 : 0xff2222);
     }
 
     tickAttacks() {
         if (this.dead || this.stunned || this.overloading || !this.player) return;
+        // The fight starts with the intro: no volleys while the player is
+        // still outside the arena (the boss used to fire sweep rows into
+        // an empty room at the player in the antechamber).
+        if (!this.introShown) return;
         // Use scene.time.now (not the preUpdate `time` param, which is
         // game.loop.time) so the clock matches activate() and doesn't cause
         // instant frame-1 fireballs or unpause bursts.
@@ -277,12 +308,15 @@ export default class Boss2 extends BaseEnemy {
 
     // Telegraph first (yellow flash, same convention as the turret and the
     // Flowline boss), then fire. The boss keeps its pattern choice local —
-    // phases 2 and 3 alternate two volleys so the fight reads as
-    // bullet-hell rather than one repeated shot.
+    // phases 1 and 3 alternate two volleys so the fight reads as
+    // bullet-hell rather than one repeated shot: phase 1 swaps sweep rows
+    // with a fast aimed burst, phase 3 swaps the pinwheel with the slam.
     startVolley() {
         let fire;
         if (this.phase === 1) {
-            fire = () => this.startSweepRows();
+            fire = this.volleyKind % 2 === 0
+                ? () => this.startSweepRows()
+                : () => this.startAimedBurst();
         } else if (this.phase === 2) {
             fire = this.volleyKind % 2 === 0
                 ? () => this.startSweepRows()
@@ -330,6 +364,21 @@ export default class Boss2 extends BaseEnemy {
                         this.fireBulletAt(bx, y, 90, 340);
                     });
                 }
+            });
+        }
+    }
+
+    // Phase 1 alternate: a fast 3-round aimed burst at the player — the
+    // sweep rows make the player move, the burst makes them move NOW.
+    // Same aimed-shot setup as the burst ring's opening, minus the ring.
+    startAimedBurst() {
+        const g = this.gen;
+        const aimed = Phaser.Math.RadToDeg(
+            Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y));
+        for (let i = 0; i < 3; i++) {
+            this.scene.time.delayedCall(i * 180, () => {
+                if (g !== this.gen || this.dead || !this.active || !this.player) return;
+                this.fireBullet(aimed + (i - 1) * 8, 520);
             });
         }
     }
@@ -395,6 +444,29 @@ export default class Boss2 extends BaseEnemy {
                 });
             }
         }
+        // Second beat: once the waves have rolled out, a short yellow
+        // flash (the same telegraph convention) warns a 3-shot aimed
+        // burst at the player's landing spot — the player just jumped
+        // the waves and is coming down, so the burst pressures the
+        // landing instead of letting the slam end in a breather.
+        this.scene.time.delayedCall(700, () => {
+            if (g !== this.gen || this.dead || !this.active) return;
+            this.setTint(0xfff176);
+        });
+        this.scene.time.delayedCall(900, () => {
+            if (g !== this.gen || this.dead || !this.active || !this.player) return;
+            // Don't cut a new volley's wind-up flash short: if one is in
+            // progress, its own completion restores the tint.
+            if (!this.windingUp) this.restoreTint();
+            const aimed = Phaser.Math.RadToDeg(
+                Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y));
+            for (let i = 0; i < 3; i++) {
+                this.scene.time.delayedCall(i * 150, () => {
+                    if (g !== this.gen || this.dead || !this.active) return;
+                    this.fireBullet(aimed + (i - 1) * 8, 520);
+                });
+            }
+        });
     }
 
     ensureFireballAnim() {
@@ -445,7 +517,7 @@ export default class Boss2 extends BaseEnemy {
         // with the payout.
         const reward = this.rematch ? 100 : (GameManager.flags.boss2RewardPaid ? 50 : 500);
         GameManager.flags.boss2RewardPaid = true;
-        this.scene.player?.playerUI?.hideBossBar();
+        this.scene.player?.playerUI?.hideBossBar(this);
         this.barVisible = false;
         this.gen++; // invalidate any in-flight delayed volleys
         this.dead = true;
@@ -454,8 +526,8 @@ export default class Boss2 extends BaseEnemy {
         // Rematch: leaving the arena and coming back re-spawns the boss in
         // hard mode (see armRematchTrigger). First-kill loot is flag-guarded,
         // so a rematch can never pay it twice.
-        this.armRematchTrigger(this.x, this.y,
-            () => this.scene.spawnManager?.spawnBoss2(this.x, this.y));
+        this.armRematchTrigger(this.homeX, this.homeY,
+            () => this.scene.spawnManager?.spawnBoss2(this.homeX, this.homeY));
         this.emit('die', player);
         this.deactivate();
     }
@@ -494,7 +566,7 @@ export default class Boss2 extends BaseEnemy {
         this.windingUp = false;
         this.overloading = false;
         this.slamArmed = false;
-        this.scene?.player?.playerUI?.hideBossBar();
+        this.scene?.player?.playerUI?.hideBossBar(this);
         super.deactivate();
     }
 }

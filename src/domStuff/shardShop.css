@@ -120,3 +120,27 @@
     color: #6b839a;
     text-align: center;
 }
+
+/* Purchase toast: appears under the rows after a buy, names what was
+   bought, then fades. Empty by default (opacity 0, no layout shift —
+   the min-height reserves the line so rows don't jump when it shows). */
+#shard-shop .ss-toast {
+    margin-top: 10px;
+    min-height: 20px;
+    font-size: 15px;
+    font-weight: bold;
+    color: #7dff9a;
+    text-align: center;
+    opacity: 0;
+}
+
+#shard-shop .ss-toast.show {
+    animation: ss-toast-fade 2.4s ease-out forwards;
+}
+
+@keyframes ss-toast-fade {
+    0% { opacity: 0; transform: translateY(4px); }
+    10% { opacity: 1; transform: translateY(0); }
+    70% { opacity: 1; }
+    100% { opacity: 0; }
+}

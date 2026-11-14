@@ -228,6 +228,9 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
             this.healthBarBg = null;
         }
         this.createdHealthBar = false;
+        // A dying boss always unseals its arena — the lock must never
+        // outlive the fight (see lockBossArena).
+        this.unlockBossArena();
         this.setActive(false);
         this.setVisible(false);
         this.body.stop();
@@ -409,6 +412,90 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
             },
         });
         scene.events.once('shutdown', () => scene.time.removeEvent(check));
+    }
+
+    // ---- Boss intro (shared by the three bosses) ----
+    // A quick name card + an optional arena lock, so a boss fight feels
+    // like an event instead of another enemy walking in. The card is
+    // NON-blocking: it never freezes input or plays a cutscene — the
+    // player can move and attack through it, so a phone player is
+    // fighting within ~2s of it appearing. The lock (if any) is a set of
+    // invisible static barriers over the arena's exits while the fight is
+    // live; die()/deactivate() always remove them, so a lock can never
+    // outlive its boss.
+    //
+    // tryBossIntro is called from a boss's preUpdate with the boss's own
+    // trigger test (`inside`) — each boss knows its room; the helper only
+    // owns the once-per-life gate and the card/lock themselves. Lock
+    // rects are world-px {x, y, w, h}, derived by the caller from its
+    // arena bounds so they track the tilemap.
+
+    // Once per life: show the card and seal the exits. No-ops until the
+    // player is inside the fight.
+    tryBossIntro(name, subtitle, inside, lockRects = []) {
+        if (this.introShown || this.dead || !this.active || !inside) return;
+        this.introShown = true;
+        this.showBossNameCard(name, subtitle);
+        if (lockRects.length) this.lockBossArena(lockRects);
+    }
+
+    showBossNameCard(name, subtitle) {
+        const scene = this.scene;
+        if (!scene) return;
+        const cx = scene.scale.width / 2;
+        const cy = scene.scale.height * 0.3;
+        // 32px name fits a 360px phone viewport (longest name, 'FLOWLINE
+        // GUARDIAN', is ~310px at this size); subtitle smaller.
+        const nameText = scene.add.text(cx, cy, name, {
+            fontSize: '32px',
+            color: '#ffffff',
+            fontStyle: 'bold',
+            stroke: '#000000',
+            strokeThickness: 8,
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(2000);
+        const subText = scene.add.text(cx, cy + 44, subtitle, {
+            fontSize: '18px',
+            color: '#ffcc66',
+            fontStyle: 'bold',
+            stroke: '#000000',
+            strokeThickness: 5,
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(2000);
+        // Fade out after a beat. If the scene restarts mid-fade (player
+        // death), the texts die with it — no leak, no stale card on the
+        // next life.
+        scene.tweens.add({
+            targets: [nameText, subText],
+            alpha: 0,
+            delay: 1400,
+            duration: 600,
+            onComplete: () => { nameText.destroy(); subText.destroy(); },
+        });
+    }
+
+    // Seal the arena exits with invisible static barriers (zones need no
+    // texture). Only colliders with the player — bullets, the boss, and
+    // pickups pass through untouched. Callers place the rects so the
+    // player is never inside one when it appears (trigger a step inside
+    // the room, barrier at the exit behind them).
+    lockBossArena(rects) {
+        const scene = this.scene;
+        if (!scene || !scene.player || this._arenaLockZones) return;
+        this._arenaLockZones = [];
+        this._arenaLockColliders = [];
+        for (const r of rects) {
+            const zone = scene.add.zone(r.x + r.w / 2, r.y + r.h / 2, r.w, r.h);
+            scene.physics.add.existing(zone, true); // static body
+            const col = scene.physics.add.collider(scene.player, zone);
+            this._arenaLockZones.push(zone);
+            this._arenaLockColliders.push(col);
+        }
+    }
+
+    unlockBossArena() {
+        for (const c of this._arenaLockColliders ?? []) c?.destroy();
+        for (const z of this._arenaLockZones ?? []) z?.destroy();
+        this._arenaLockZones = null;
+        this._arenaLockColliders = null;
     }
 
     // Nudge a loot drop point out of solid geometry. Probes the walls layer

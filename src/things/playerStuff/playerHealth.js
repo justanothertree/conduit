@@ -38,7 +38,38 @@ export function playerTakeDamage(player, x, y, damage, stunDuration, actor) {
     });
 
     if (player.adjustHealth(-damage) === 0) {
-        player.Died(actor);
+        // Shard-shop Second Wind: cheat death once per life. A fatal hit
+        // instead leaves the player standing at 5 + 5 per level HP
+        // (10/15/20 — must match the Second Wind desc in shardShop.js),
+        // with 1.5s of i-frames to get clear. The per-life flag lives on
+        // the player and resets with it on respawn (see Player's
+        // constructor); without the flag the line would be infinite lives.
+        // The rest of the damage feedback below (money loss, flash,
+        // sound, knockback) still runs — only Died() is skipped.
+        const sw = GameManager.upgrades?.shardShop?.secondWind ?? 0;
+        if (sw > 0 && !player._secondWindUsed) {
+            player._secondWindUsed = true;
+            player.adjustHealth(5 + 5 * sw);
+            player.iFrame = true;
+            player.scene.time.delayedCall(1500, () => { player.iFrame = false; });
+            const label = player.scene.add.text(player.x, player.y - 60, 'SECOND WIND!', {
+                fontSize: '28px',
+                color: '#7dff9a',
+                fontStyle: 'bold',
+                stroke: '#000000',
+                strokeThickness: 5,
+            }).setOrigin(.5);
+            player.scene.tweens.add({
+                targets: label,
+                alpha: 0,
+                y: player.y - 110,
+                delay: 900,
+                duration: 600,
+                onComplete: () => label.destroy(),
+            });
+        } else {
+            player.Died(actor);
+        }
     }
 
     player.updateMoney(-damage);

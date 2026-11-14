@@ -1,5 +1,6 @@
 import { addButton, setupKeybindWindow } from "../domStuff/KeyBinds.js";
 import { isTouchDevice, setupTouchControls } from "../domStuff/TouchControls.js";
+import { BOMBARDIER_DATA_URI, IRON_WARDEN_DATA_URI } from "../assets/bossSprites.js";
 import GameManager from "../things/GameManager.js";
 
 export default class Preloader extends Phaser.Scene {
@@ -21,6 +22,10 @@ export default class Preloader extends Phaser.Scene {
         this.load.image('redsky1', 'assets/RedSky1.webp');
         this.load.image('redsky2', 'assets/RedSky2.webp');
         this.load.image('bat', 'assets/BatEnemy.png');
+        // Boss art ships as data URIs (see src/assets/bossSprites.js) —
+        // snapshot pushes carry text only, so the PNG files can't ride along.
+        this.load.image('warden', IRON_WARDEN_DATA_URI);
+        this.load.image('bombardier', BOMBARDIER_DATA_URI);
         this.load.image('purplesky0', 'assets/PurpleSky0.webp');
         this.load.image('tilesheet', 'assets/tilesheet.png');
         this.load.image('bullet', 'assets/bullet.png');

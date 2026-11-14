@@ -3,11 +3,11 @@
 // A shard-keeper crystal the player walks up to and interacts with (F key,
 // or the touch menu's Interact entry — same interactGroup convention as the
 // devil shop). Interacting opens a DOM shop panel (src/domStuff/shardShop.css)
-// where Flowline and World 1 shards can be spent on seven upgrade lines:
-// Aura, Max Health, Damage, Cooldown, Lifesteal, Multishot, Pierce. DOM, not
-// canvas, so taps land on phones: the panel sits at z-index 20, above the
-// touch overlay (z-index 10), and needs no changes to the touch
-// joystick-zone menu-open polling.
+// where Flowline and World 1 shards can be spent on eight upgrade lines:
+// Aura, Max Health, Damage, Cooldown, Lifesteal, Multishot, Pierce,
+// Second Wind. DOM, not canvas, so taps land on phones: the panel sits at
+// z-index 20, above the touch overlay (z-index 10), and needs no changes
+// to the touch joystick-zone menu-open polling.
 //
 // The panel is a progression hub: besides the spendable balance it shows
 // total shards found per level (Flowline x/12, World 1 x/12, boss-loot
@@ -24,10 +24,11 @@
 // changes were needed — the upgrades object is already serialized by
 // GameManager.save()/load().
 //
-// Costs: the four original lines stay 1/2/3 shards per level; the three
-// combat lines (Lifesteal, Multishot, Pierce) cost 2/3/4 — premium lines,
-// since ~30 shards now exist and maxing everything (51 shards) must stay
-// out of reach, so the player picks a build instead of buying it all.
+// Costs: the four original lines stay 1/2/3 shards per level; the four
+// combat lines (Lifesteal, Multishot, Pierce, Second Wind) cost 2/3/4 —
+// premium lines, since ~30 shards now exist and maxing everything
+// (60 shards) must stay out of reach, so the player picks a build
+// instead of buying it all.
 
 import GameManager from "./GameManager.js";
 import "../domStuff/shardShop.css";
@@ -70,11 +71,26 @@ export const SHARD_UPGRADES = {
     },
     // Premium combat line (2/3/4 shards), like Lifesteal/Multishot:
     // it feeds fights directly, and with ~30 shards in the world the
-    // shop has to stay a choice, not a checklist — maxing all seven
-    // lines costs 51 shards.
+    // shop has to stay a choice, not a checklist — maxing all eight
+    // lines costs 60 shards.
     pierce: {
         name: 'Pierce',
         desc: (level) => `Shurikans pass through +${level} enemies`,
+        cost: (level) => level + 2, // cost of the NEXT level: 2, 3, 4 shards
+    },
+    // Premium combat line (2/3/4 shards), like the other three: the one
+    // high-impact line, not another +N% — it changes how boss fights
+    // play, because a fatal hit becomes a second chance instead of a
+    // death screen. The survive-HP (5 + 5 per level: 10/15/20) must match
+    // playerTakeDamage's Second Wind branch in playerHealth.js. Once per
+    // life — the flag resets with the player on respawn. Old saves are
+    // fine: shardShopLevels() lazily adds the key at 0, like every line
+    // before it.
+    secondWind: {
+        name: 'Second Wind',
+        desc: (level) => level === 0
+            ? 'Cheat death once per life — survive a fatal hit at 10 HP'
+            : `Cheat death once per life — survive a fatal hit at ${5 + 5 * level} HP`,
         cost: (level) => level + 2, // cost of the NEXT level: 2, 3, 4 shards
     },
 };
@@ -127,7 +143,22 @@ function buy(line, player) {
     levels[line] += 1;
     applyUpgrade(line, player);
     GameManager.save();
+    // A purchase should FEEL like one, not just move a number: the shop
+    // chime plus a toast naming what was bought (the row itself is
+    // rebuilt by render(), so the toast lives outside the rows).
+    player.scene?.sound?.play('shopInteractFinish');
     return true;
+}
+
+// Toast shown after a purchase: "Damage II — +20% weapon damage".
+// Re-adding the class restarts the fade animation (see shardShop.css).
+function showToast(text) {
+    const toast = document.querySelector('#shard-shop .ss-toast');
+    if (!toast) return;
+    toast.textContent = text;
+    toast.classList.remove('show');
+    void toast.offsetWidth;
+    toast.classList.add('show');
 }
 
 function pips(level) {
@@ -194,7 +225,10 @@ function render(player) {
             btn.textContent = `${cost} ◆`;
             btn.disabled = !afford;
             btn.onclick = () => {
-                if (buy(line, player)) render(player);
+                if (buy(line, player)) {
+                    showToast(`${def.name} ${levels[line]} — ${def.desc(levels[line])}`);
+                    render(player);
+                }
             };
         }
 
@@ -219,6 +253,7 @@ export function openShardShop(player) {
             <div class="ss-balance"></div>
             <div class="ss-totals"></div>
             <div class="ss-rows"></div>
+            <div class="ss-toast" aria-live="polite"></div>
             <div class="ss-note">Shards are finite — 12 in Flowline, 12 in World 1, plus boss loot. Spend wisely.</div>
         </div>`;
     document.body.appendChild(root);

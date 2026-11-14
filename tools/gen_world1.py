@@ -11,18 +11,25 @@ Movement calibration (read from the player code, not changed):
   full held jump ~= 125px (~4 tiles), dash speed 900, wall jump exists.
   Design rule: vertical steps <= 3 tiles, horizontal gaps <= 6 (dashable).
 
-Layout (tiles, 32px; map is 140x80, y grows downward):
-  A  Breach        x  2-22    spawn, checkpoint 0, ducks, sign, secret hop
+Layout (tiles, 32px; map is 168x80, y grows downward):
+  A  Breach        x  2-22    spawn, checkpoint 0, ducks, spitter, sign,
+                             secret hop
   B  Turret alley  x 24-46    2 turrets on platforms, cover blocks, charger,
                              checkpoint 1 at the exit
   C  The pit       x 48-72    lava pit with platform hops, bats, turret on
-                             the far shore, checkpoint 2 at the exit
-  D  Charger den   x 74-106   open arena: 3 chargers, 2 turrets on ledges,
-                             2 bombers overhead, cover blocks, antechamber
-                             with checkpoint 3 and the Bombardier mini-boss
-  E  Boss arena    x 108-130  Iron Warden (boss 2), cover, ground doorway in
-                             the left wall, climb-out over the right wall
-  F  Vault         x 131-138  finish line, Home return portal, card, shard
+                             the far shore, swarmer pack, checkpoint 2
+                             at the exit
+  D  Charger den   x 74-96    open arena: 3 chargers, 2 turrets on ledges,
+                             2 bombers overhead, swarmer pack, spitter,
+                             cover blocks
+  D2 Antechamber   x 98-118   640px-wide room (was 256px): the Bombardier
+                             mini-boss, checkpoint 3, stepped platforms so
+                             the fight has room to breathe and dodge in
+  E  Boss arena    x 120-152  Iron Warden (boss 2), 1056px wide (was 736px),
+                             stair-stepped platforms (<=3-tile rises) for
+                             wall-jump/dash play, ground doorway in the
+                             left wall, climb-out over the right wall
+  F  Vault         x 153-166  finish line, Home return portal, card, shard
 
 Layers match the other maps: layer1 (empty — the nebula sky shows
 through), layer2 (background accents in Krazay17's tilemap2 style —
@@ -33,7 +40,7 @@ fire damage). Tileset "tilesheet" (32px tiles).
 import json
 import sys
 
-W, H = 140, 80
+W, H = 168, 80
 STONE, LAVA, LAVA2 = 157, 329, 330
 
 walls = [0] * (W * H)
@@ -119,7 +126,7 @@ def checkpoint(tx, ty):
 # ================================================================ geometry
 # borders
 rect(walls, 0, 0, 1, H - 1, STONE)
-rect(walls, 138, 0, 139, H - 1, STONE)
+rect(walls, 166, 0, 167, H - 1, STONE)
 
 # ---- A: breach
 rect(walls, 2, 70, 22, 79, STONE)
@@ -128,6 +135,10 @@ add("spawnText", 6, 61, text="WORLD 1")
 checkpoint(11, 66)                       # checkpoint 0: the start
 add("spawnDuck", 15, 66)
 add("spawnDuck", 19, 66)
+# A lone spitter at the breach exit: the first ranged walker the player
+# meets — it teaches the "close in during the wind-up" answer before
+# the turret alley stacks ranged pressure.
+add("spawnSpitter", 21, 66)
 platform(3, 66, 3)                       # secret hop
 for i in range(6, 20, 2):
     coin(i, 66)
@@ -156,6 +167,7 @@ for (px, py) in [(50, 66), (56, 63), (62, 66)]:
     platform(px, py, 4)
 rect(walls, 63, 70, 72, 79, STONE)       # far shore
 add("spawnTurret", 67, 66)               # turret 3 guards the far shore
+add("spawnSwarmer", 68, 66)               # swarmer pack: 3 fast ducklings
 add("spawnBat", 54, 56)
 add("spawnBat", 60, 52)
 coin_line(50, 62, 54, 59, 3, float_=True)
@@ -165,7 +177,7 @@ shard(51, 71)                            # w1-06: low over the lava (risk)
 checkpoint(70, 66)                       # checkpoint 2: pit crossed
 
 # ---- D: charger den
-rect(walls, 74, 70, 98, 79, STONE)
+rect(walls, 74, 70, 96, 79, STONE)
 platform(78, 60, 3)
 add("spawnTurret", 79, 56)               # turret 4 on the west ledge
 platform(90, 60, 3)
@@ -175,42 +187,66 @@ add("spawnCharger", 87, 66)
 add("spawnCharger", 93, 66)
 add("spawnBomber", 82, 54)               # bomber 1: over the den, west
 add("spawnBomber", 93, 54)               # bomber 2: over the den, east
+add("spawnSwarmer", 77, 66)               # swarmer pack: west end of the den
+add("spawnSpitter", 95, 66)               # spitter: east end, by the cover
 add("spawnSourceBlock", 84, 66)          # cover
 add("spawnSourceBlock", 96, 66)          # cover
-for i in range(76, 97, 2):
+for i in range(76, 95, 2):
     coin(i, 66)
 shard(86, 52)                            # w1-07: high over the den
-shard(97, 64)                            # w1-08: east corner
-# antechamber before the boss
-rect(walls, 99, 70, 106, 79, STONE)
-add("spawnText", 101, 62, text="BOSS AHEAD")
-add("spawnDashBuff", 103, 66)
+# antechamber before the boss — 640px wide (tiles 98-118), up from 256px:
+# the Bombardier fight finally has room to breathe. Stepped platforms
+# (<=3-tile rises, the generator's movement rule) give the player
+# vertical dodging against aimed bombs and the ground sweeper, and a
+# high perch for the risk shard. The room's interior is tiles 98-117
+# (px 3136-3776); the mini-boss gate in enemyMiniboss.js (spawn ±320px)
+# and the intro lock rects in _baseEnemy must match these bounds.
+rect(walls, 98, 70, 118, 79, STONE)
+platform(101, 67, 3)                     # west low step
+platform(108, 64, 4)                     # mid step
+platform(114, 61, 3)                     # high perch
+add("spawnText", 99, 62, text="BOSS AHEAD")
+add("spawnDashBuff", 100, 66)
 # The Bombardier mini-boss guards the antechamber (replaces the 3rd
 # bomber — the room is the mini-boss's arena, and it drops bombs anyway).
-add("spawnMiniboss", 102, 58, props=[prop("health", "int", 250)])
-checkpoint(104, 66)                      # checkpoint 3: boss antechamber
+# Spawn is the room's center tile (108), so the ±320px gate stays
+# centered on the room.
+add("spawnMiniboss", 108, 58, props=[prop("health", "int", 250)])
+checkpoint(103, 66)                      # checkpoint 3: boss antechamber
+shard(115, 54)                           # w1-08: high over the fight (risk)
 
-# ---- E: boss arena (Iron Warden)
-rect(walls, 108, 70, 130, 79, STONE)     # floor
-rect(walls, 106, 56, 107, 67, STONE)     # left wall with a ground doorway
-rect(walls, 128, 60, 129, 69, STONE)     # right wall (climb out over it)
-for (px, py) in [(112, 62), (120, 62)]:
-    platform(px, py, 4)                  # cover
-platform(124, 64, 4)                     # exit step to the right wall top
-add("spawnBoss2", 119, 64, props=[prop("health", "int", 600)])
-for i in range(110, 127, 2):
+# ---- E: boss arena (Iron Warden) — 1056px wide (tiles 120-152), up
+# from 736px. The old arena was a flat floor with two unreachable
+# platforms (8 tiles up, past the ~4-tile jump), so the bullet patterns
+# had nowhere to dodge to. The new arena stair-steps up both sides to a
+# high center platform — every rise is <=3 tiles and every gap <=6, so
+# plain jumps chain across it, and the tall side walls still reward
+# wall-runs. Platforms are footing, not cover (boss fireballs don't
+# collide with tiles): they give the player vertical escape lanes
+# against the sweep rows and a perch above the slam's ground waves.
+rect(walls, 120, 70, 152, 79, STONE)     # floor
+rect(walls, 118, 56, 119, 67, STONE)     # left wall with a ground doorway
+rect(walls, 150, 62, 151, 69, STONE)     # right wall (climb out over it)
+platform(122, 67, 4)                     # west low
+platform(127, 64, 4)                     # west mid
+platform(132, 61, 5)                     # high center
+platform(139, 64, 4)                     # east mid
+platform(144, 67, 4)                     # east low
+platform(148, 64, 2)                     # exit step to the right wall top
+add("spawnBoss2", 136, 64, props=[prop("health", "int", 600)])
+for i in range(122, 149, 2):
     coin(i, 66)
-shard(113, 58)                           # w1-09: above west cover
-shard(126, 58)                           # w1-10: east corner
-shard(119, 54)                           # w1-11: high center (risk)
+shard(123, 63)                           # w1-09: above west low
+shard(148, 60)                           # w1-10: above the exit step
+shard(134, 57)                           # w1-11: high center (risk)
 
 # ---- F: vault
-rect(walls, 131, 70, 138, 79, STONE)
-add("spawnFinishLine", 135, 66)
-add("spawnCard", 136, 62, props=[prop("float", "bool", True)])
-for i in range(132, 137, 2):
+rect(walls, 153, 70, 166, 79, STONE)
+add("spawnFinishLine", 157, 66)
+add("spawnCard", 158, 62, props=[prop("float", "bool", True)])
+for i in range(154, 165, 2):
     coin(i, 66)
-shard(134, 62)                           # w1-12: the vault
+shard(156, 62)                           # w1-12: the vault
 
 # ================================================================ decoration
 # layer1/layer2 are pure background: setupTileMap only ever collides
@@ -241,31 +277,33 @@ TUFTS = [43, 44, 73, 74]  # grass tufts / flowering plants
 
 # hanging braziers: alley mouth, pit edges, den, arena mouth, vault
 for (x, y) in [(25, 62), (47, 64), (63, 64), (86, 60),
-               (107, 62), (126, 62), (134, 62)]:
+               (121, 62), (141, 58), (160, 62)]:
     accent(x, y, BRAZIER)
 
 # pots on the ground / platform tops
-for (x, y) in [(5, 69), (21, 69), (44, 69), (76, 69), (97, 69),
-               (110, 69), (129, 69), (137, 69)]:
+for (x, y) in [(5, 69), (21, 69), (44, 69), (76, 69), (99, 69),
+               (121, 69), (149, 69), (160, 69)]:
     accent(x, y, POT)
 
 # grass tufts along the breach, den floor, vault
 for (x, y) in [(3, 69), (9, 69), (13, 69), (17, 69), (21, 69),
                (75, 69), (80, 69), (89, 69), (95, 69),
-               (132, 69), (136, 69)]:
+               (154, 69), (162, 69)]:
     accent(x, y, rng.choice(TUFTS))
 
 # moss on stone platform tops
 for (x, y) in [(29, 63), (39, 59),                    # alley turret platforms
                (51, 65), (57, 62), (63, 65),          # pit hop platforms
                (79, 59), (91, 59),                    # den turret ledges
-               (113, 61), (121, 61), (125, 63)]:      # arena cover + exit step
+               (102, 66), (109, 63), (115, 60),       # antechamber steps
+               (123, 66), (128, 63), (133, 60),       # arena west + center
+               (140, 63), (145, 66)]:                 # arena east steps
     accent(x, y, MOSS)
 
 # bushes at zone seams, tech blocks by the turret ledges (machinery)
 accent(23, 69, BUSH)
 accent(73, 69, BUSH)
-accent(105, 69, BUSH)
+accent(96, 69, BUSH)
 accent(76, 56, 72)
 accent(77, 56, 189)
 accent(93, 56, 72)
@@ -322,6 +360,7 @@ KNOWN = {"spawnPlayer", "spawnCoin", "spawnDuck", "spawnBat", "spawnSunman",
          "spawnBoss", "spawnBoss2", "spawnMiniboss", "spawnShard", "spawnCard", "spawnBooster",
          "spawnDashBuff", "spawnPortal", "spawnSourceBlock", "spawnFinishLine",
          "spawnText", "spawnTurret", "spawnCharger", "spawnBomber",
+         "spawnSwarmer", "spawnSpitter",
          "spawnCheckpoint"}
 for n in names - KNOWN:
     errors.append(f"unknown spawn name: {n}")
@@ -331,7 +370,7 @@ for o in objects:
     # solid-ground check: enemies/pickups should not spawn inside walls
     if o["name"] in ("spawnDuck", "spawnSunman", "spawnBoss2",
                      "spawnPlayer", "spawnSourceBlock", "spawnTurret",
-                     "spawnCharger"):
+                     "spawnCharger", "spawnSwarmer", "spawnSpitter"):
         tx, ty = int(o["x"] // 32), int(o["y"] // 32)
         if walls[ty * W + tx] != 0:
             errors.append(f"{o['name']} inside solid wall at tile {tx},{ty}")
@@ -353,21 +392,25 @@ for req in ["spawnPlayer", "spawnFinishLine", "spawnBoss2"]:
         errors.append(f"expected 1 {req}, got {counts.get(req, 0)}")
 for name, want in [("spawnTurret", 5), ("spawnCharger", 4),
                    ("spawnBomber", 2), ("spawnMiniboss", 1),
+                   ("spawnSwarmer", 2), ("spawnSpitter", 2),
                    ("spawnCheckpoint", 4)]:
     if counts.get(name, 0) != want:
         errors.append(f"expected {want} {name}, got {counts.get(name, 0)}")
 # enemies must not share a tile with any pre-existing object
 # (bombers and the mini-boss fly, so they skip the solid-ground check
-# above but still must not share a tile)
+# above but still must not share a tile). Swarmer packs skip this check
+# on purpose: one object spawns three swarmers at half-tile offsets, so
+# members can share a tile with a coin — harmless, and the check's
+# integer-tile math would false-positive on it.
 new_tiles = [(o["name"], o["x"] // 32, o["y"] // 32)
              for o in objects if o["name"] in ("spawnTurret", "spawnCharger",
                                                "spawnBomber", "spawnBoss2",
-                                               "spawnMiniboss",
+                                               "spawnMiniboss", "spawnSpitter",
                                                "spawnCheckpoint")]
 other_tiles = {(o["x"] // 32, o["y"] // 32)
                for o in objects if o["name"] not in ("spawnTurret", "spawnCharger",
                                                      "spawnBomber", "spawnBoss2",
-                                                     "spawnMiniboss",
+                                                     "spawnMiniboss", "spawnSpitter",
                                                      "spawnCheckpoint")}
 for name, tx, ty in new_tiles:
     if (tx, ty) in other_tiles:
