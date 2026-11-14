@@ -7,6 +7,7 @@ import Boss2 from "./enemyBoss2.js"
 import Checkpoint from "./checkpoint.js"
 import Turret from "./enemyTurret.js"
 import Charger from "./enemyCharger.js"
+import Bomber from "./enemyBomber.js"
 import SunMan from "./enemySunman.js";
 import Coin from "./coin.js";
 import Booster from "./booster.js";
@@ -57,6 +58,10 @@ export default class SpawnManager {
         this.chargerGroup = this.scene.physics.add.group({
             classType: Charger,
         });
+        this.bomberGroup = this.scene.physics.add.group({
+            classType: Bomber,
+            allowGravity: false,
+        });
         this.bulletGroup = this.scene.physics.add.group({ allowGravity: false });
         this.softBulletGroup = this.scene.physics.add.group({ allowGravity: false });
         this.itemGroup = this.scene.physics.add.group();
@@ -77,6 +82,7 @@ export default class SpawnManager {
             { group: this.boss2Group, handler: 'enemyHit', zap: true, walls: true },
             { group: this.turretGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.chargerGroup, handler: 'enemyHit', zap: true, walls: true },
+            { group: this.bomberGroup, handler: 'enemyHit', zap: true, walls: true },
             { group: this.bulletGroup, handler: 'bulletHit', zap: false, walls: false },
             { group: this.softBulletGroup, handler: 'bulletHit', zap: false, walls: false },
             { group: this.itemGroup, handler: 'itemHit', zap: false, walls: true },
@@ -135,11 +141,15 @@ export default class SpawnManager {
     spawnBoss(x, y, obj) {
         const props = getProperty(obj);
         const health = props?.health ?? Boss.MAX_HEALTH;
+        // Rematch: after the first kill the bounty flag is set, so any
+        // later spawn (level re-entry, or the arena re-entry trigger
+        // armed in die()) is hard mode — faster volleys, faster bullets.
+        const rematch = !!GameManager.flags.bossRewardPaid;
         let boss = this.bossGroup.get(x, y);
         if (boss) {
-            if (!boss.activate(x, y, health)) {
+            if (!boss.activate(x, y, health, rematch)) {
                 boss = this.bossGroup.create();
-                boss.activate(x, y, health);
+                boss.activate(x, y, health, rematch);
             }
         }
         return boss;
@@ -152,11 +162,15 @@ export default class SpawnManager {
     spawnBoss2(x, y, obj) {
         const props = getProperty(obj);
         const health = props?.health ?? Boss2.MAX_HEALTH;
+        // Rematch: after the first kill the bounty flag is set, so any
+        // later spawn (level re-entry, or the arena re-entry trigger
+        // armed in die()) is hard mode — faster volleys, faster bullets.
+        const rematch = !!GameManager.flags.boss2RewardPaid;
         let boss = this.boss2Group.get(x, y);
         if (boss) {
-            if (!boss.activate(x, y, health)) {
+            if (!boss.activate(x, y, health, rematch)) {
                 boss = this.boss2Group.create();
-                boss.activate(x, y, health);
+                boss.activate(x, y, health, rematch);
             }
         }
         return boss;
@@ -260,6 +274,24 @@ export default class SpawnManager {
         this.chargerGroup.add(charger);
         charger.init();
         return charger;
+    }
+
+    // World 1 flying bomber: hovers above the fight and drops explosives
+    // straight down (Bomber class). Pooled like the turret/charger.
+    spawnBomber(x, y, obj, health = 15, isRemote = false, id = null) {
+        const props = getProperty(obj);
+        health = props?.health ?? health;
+        let bomber = this.bomberGroup.getFirst(false);
+
+        if (bomber && bomber.activate(x, y, health)) {
+            bomber.init();
+            return bomber;
+        }
+        // Create new if no usable bomber
+        bomber = new Bomber(this.scene, x, y, health);
+        this.bomberGroup.add(bomber);
+        bomber.init();
+        return bomber;
     }
 
     spawnBullets(x, y, amount) {

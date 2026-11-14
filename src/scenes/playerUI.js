@@ -219,7 +219,7 @@ export default class PlayerUI extends Phaser.Scene {
     }
 
     // ---- Shard counter + completion banner (Flowline). Levels with
-    // collectible shards set `shardTotal` and `flowShardsFound()` on the
+    // collectible shards set `shardTotal` and `levelShardsFound()` on the
     // game scene (LevelFlow does); every other level shows nothing. The
     // data model is untouched — counts still come from
     // GameManager.collectedItems.
@@ -227,7 +227,7 @@ export default class PlayerUI extends Phaser.Scene {
         const gs = this.gameScene;
         this.shardTotal = gs?.shardTotal ?? 0;
         if (!this.shardTotal) return;
-        const found = gs.flowShardsFound?.() ?? 0;
+        const found = gs.levelShardsFound?.() ?? 0;
         // Left HUD column: score (y=50, two 32px lines ends ~130), health
         // bar (y=150, 25 tall ends at 175) — so the counter sits BELOW the
         // bar at y=186 instead of overlapping it. "◆ 12/12" at 22px is
@@ -244,7 +244,7 @@ export default class PlayerUI extends Phaser.Scene {
 
     updateShardHud() {
         if (!this.shardText) return;
-        const found = this.gameScene?.flowShardsFound?.() ?? 0;
+        const found = this.gameScene?.levelShardsFound?.() ?? 0;
         this.shardText.setText(`◆ ${found}/${this.shardTotal}`);
     }
 
@@ -436,7 +436,10 @@ export default class PlayerUI extends Phaser.Scene {
 
         Object.entries(otherPlayers).forEach(([id, player], index) => {
             const playerId = String(id); // ensure string consistency
-            const yloc = index * 50 + 200;
+            // Rows start at y=220, not 200: the shard counter sits at
+            // y=186 (~22px tall, ends ~208) in shard levels, and the
+            // first row used to overlap it when other players were online.
+            const yloc = index * 50 + 220;
             activeIds.add(playerId);
             if (this.playerHealthMap[playerId]) {
                 const healthObj = this.playerHealthMap[playerId];

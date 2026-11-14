@@ -3,21 +3,31 @@
 // A shard-keeper crystal the player walks up to and interacts with (F key,
 // or the touch menu's Interact entry — same interactGroup convention as the
 // devil shop). Interacting opens a DOM shop panel (src/domStuff/shardShop.css)
-// where Flowline and World 1 shards can be spent on four upgrade lines:
-// Aura, Max Health, Damage, Cooldown. DOM, not canvas, so taps land on phones: the panel sits at
-// z-index 20, above the touch overlay (z-index 10), and needs no changes to
-// the touch joystick-zone menu-open polling.
+// where Flowline and World 1 shards can be spent on six upgrade lines:
+// Aura, Max Health, Damage, Cooldown, Lifesteal, Multishot. DOM, not
+// canvas, so taps land on phones: the panel sits at z-index 20, above the
+// touch overlay (z-index 10), and needs no changes to the touch
+// joystick-zone menu-open polling.
+//
+// The panel is a progression hub: besides the spendable balance it shows
+// total shards found per level (Flowline x/12, World 1 x/12, boss-loot
+// shards separately), so the player can see what's left to find.
 //
 // Spend design: GameManager.collectedItems stays the permanent "found"
 // record (the Flowline HUD's ◆ n/12 is found count and never changes on
 // spend). Spending is tracked separately, in the already save-persisted
 // GameManager.upgrades object:
-//   upgrades.shardShop  = { aura, maxHealth, damage }  (purchased levels)
+//   upgrades.shardShop  = { aura, maxHealth, damage, ... } (purchased levels)
 //   upgrades.shardsSpent = ['flow-03', ...]            (ids already spent)
 // Spendable shards = collectedItems minus shardsSpent. Shards are finite
-// (12 in the world), so spending is a real tradeoff. No GameManager code
+// (~28 in the world), so spending is a real tradeoff. No GameManager code
 // changes were needed — the upgrades object is already serialized by
 // GameManager.save()/load().
+//
+// Costs: the four original lines stay 1/2/3 shards per level; the two
+// combat lines (Lifesteal, Multishot) cost 2/3/4 — premium lines, since
+// ~28 shards now exist and maxing everything (42 shards) must stay out
+// of reach, so the player picks a build instead of buying it all.
 
 import GameManager from "./GameManager.js";
 import "../domStuff/shardShop.css";
@@ -44,6 +54,19 @@ export const SHARD_UPGRADES = {
         name: 'Cooldown',
         desc: (level) => `-${10 * level}% weapon cooldowns`,
         cost: (level) => level + 1,
+    },
+    // Premium combat lines (2/3/4 shards): they feed fights directly,
+    // and with ~28 shards in the world the shop has to stay a choice,
+    // not a checklist — maxing all six lines costs 42 shards.
+    lifesteal: {
+        name: 'Lifesteal',
+        desc: (level) => `+${level} HP every time you hit a boss`,
+        cost: (level) => level + 2, // cost of the NEXT level: 2, 3, 4 shards
+    },
+    multishot: {
+        name: 'Multishot',
+        desc: (level) => `+${level} shurikan per throw`,
+        cost: (level) => level + 2,
     },
 };
 
@@ -80,6 +103,8 @@ function applyUpgrade(line, player) {
     }
     // 'damage' is read live via WeaponBase.shardDamageMult() — nothing to apply.
     // 'cooldown' is read live via WeaponBase.shardCooldownMult() — nothing to apply.
+    // 'lifesteal' is read live in BaseEnemy.TakeDamage() — nothing to apply.
+    // 'multishot' is read live via WeaponBase.shardMultishot() — nothing to apply.
 }
 
 function buy(line, player) {
@@ -107,6 +132,18 @@ function render(player) {
     const spendable = spendableShardIds().length;
 
     root.querySelector('.ss-balance').textContent = `${spendable} ◆ spendable`;
+    // Progression-hub totals: shards found per level, so the player can
+    // see what's left to hunt. Boss-loot shards ('bossloot-'/'w1boss-')
+    // count separately — they persist via collectedItems but sit outside
+    // both levels' ◆ n/12 counters.
+    const found = GameManager.collectedItems ?? [];
+    const flowFound = found.filter((id) => typeof id === 'string' && id.startsWith('flow-')).length;
+    const w1Found = found.filter((id) => typeof id === 'string' && id.startsWith('w1-')
+        && !id.startsWith('w1boss-')).length;
+    const bossFound = found.filter((id) => typeof id === 'string'
+        && (id.startsWith('bossloot-') || id.startsWith('w1boss-'))).length;
+    root.querySelector('.ss-totals').textContent =
+        `Flowline ◆ ${flowFound}/12 · World 1 ◆ ${w1Found}/12 · Boss loot ◆ ${bossFound}`;
     const rows = root.querySelector('.ss-rows');
     rows.innerHTML = '';
 
@@ -161,6 +198,7 @@ export function openShardShop(player) {
         <div class="ss-panel" role="dialog" aria-label="Shard shop">
             <div class="ss-head"><span>◆ SHARD SHOP</span><button class="ss-close" aria-label="Close">×</button></div>
             <div class="ss-balance"></div>
+            <div class="ss-totals"></div>
             <div class="ss-rows"></div>
             <div class="ss-note">Shards are finite — 12 in Flowline, 12 in World 1, plus boss loot. Spend wisely.</div>
         </div>`;

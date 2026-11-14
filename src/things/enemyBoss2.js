@@ -61,6 +61,13 @@ export default class Boss2 extends BaseEnemy {
         this.arenaLeft = 0;     // computed in activate() from the walls layer
         this.arenaRight = 0;
         this.groundTop = 0;
+        // Rematch mode: after the first kill, re-fights are hard mode —
+        // faster volley cadence (rateMult) and faster bullets
+        // (shotSpeedMult). HP and patrol speeds are unchanged, and the
+        // 36-bullet cap still applies. Set in activate().
+        this.rematch = false;
+        this.rateMult = 1;
+        this.shotSpeedMult = 1;
         // NOTE: scaleCollision is NOT called here — this.body is null until
         // the sprite joins the physics world (Group.add). It's called in
         // activate() instead, like Bat/Duck/Sunman do in init().
@@ -104,18 +111,40 @@ export default class Boss2 extends BaseEnemy {
         }
     }
 
-    activate(x, y, health = Boss2.MAX_HEALTH) {
+    activate(x, y, health = Boss2.MAX_HEALTH, rematch = false) {
         super.activate(x, y, health);
         this.setScale(.8);
         this.setTint(0xff33cc); // activate() clears tint
         this.scaleCollision(64, 64); // body exists now (in the physics world)
+        // Rematch (hard mode): faster volleys and faster bullets. HP and
+        // patrol speeds are deliberately unchanged — the fight gets
+        // denser, not tankier or quicker on foot.
+        this.rematch = rematch;
+        this.rateMult = rematch ? 0.7 : 1;
+        this.shotSpeedMult = rematch ? 1.15 : 1;
+        if (rematch) {
+            const label = this.scene.add.text(x, y - 130, 'REMATCH', {
+                fontSize: '28px',
+                color: '#ff5555',
+                fontStyle: 'bold',
+                stroke: '#000000',
+                strokeThickness: 5,
+            }).setOrigin(.5);
+            this.scene.tweens.add({
+                targets: label,
+                alpha: 0,
+                delay: 1500,
+                duration: 600,
+                onComplete: () => label.destroy(),
+            });
+        }
         // Spawn fix (same class as the Flowline boss): snap onto solid
         // ground below the spawn point and derive the arena bounds from the
         // walls layer, so no tilemap edits are needed.
         this.snapToGround(x, y);
         this.gen++; // invalidate any delayed volleys from a previous life
         this.phase = 1;
-        this.fireRate = 2800;
+        this.fireRate = 2800 * this.rateMult;
         this.speed = 140;
         this.volleyKind = 0;
         this.windingUp = false;
@@ -196,10 +225,10 @@ export default class Boss2 extends BaseEnemy {
         if (phase === this.phase) return;
         this.phase = phase;
         if (phase === 2) {
-            this.fireRate = 2400;
+            this.fireRate = 2400 * this.rateMult;
             this.speed = 200;
         } else {
-            this.fireRate = 2000;
+            this.fireRate = 2000 * this.rateMult;
             this.speed = 260;
         }
         this.startOverload();
@@ -268,11 +297,13 @@ export default class Boss2 extends BaseEnemy {
         this.setTint(0xfff176);
         const g = this.gen;
         this.scene.time.delayedCall(600, () => {
+            // The generation check goes FIRST: a stale wind-up from before
+            // a death/deactivate (or a phase change that started an
+            // overload mid-windup) must not clear `windingUp` or restore
+            // the tint — that state belongs to the newer volley now.
+            if (g !== this.gen || this.overloading || this.dead || !this.active || !this.player) return;
             this.windingUp = false;
             this.restoreTint();
-            // Abort if a phase change started an overload mid-windup — the
-            // breather beat shouldn't have a volley landing in it.
-            if (g !== this.gen || this.overloading || this.dead || !this.active || !this.player) return;
             fire();
         });
     }
@@ -398,7 +429,8 @@ export default class Boss2 extends BaseEnemy {
         const bullet = new Bullet(this.scene, bx, by, 'fireballsheet');
         sm.softBulletGroup.add(bullet);
         bullet.play('fireball');
-        this.scene.physics.velocityFromAngle(angleDeg, speed, bullet.body.velocity);
+        // Rematch mode fires faster bullets (shotSpeedMult); the cap is unchanged.
+        this.scene.physics.velocityFromAngle(angleDeg, speed * this.shotSpeedMult, bullet.body.velocity);
         this.bossShots.push(bullet);
         this.scene.time.delayedCall(4000, () => {
             if (bullet.active) bullet.destroy();
@@ -407,10 +439,11 @@ export default class Boss2 extends BaseEnemy {
 
     die(player) {
         // Boss bounty: full 500 only on the first kill of the save (one-time
-        // flag, mirroring flags.bossRewardPaid); repeat kills pay a 50-money
-        // consolation. player.updateMoney calls GameManager.save(), so the
-        // flag persists with the payout.
-        const reward = GameManager.flags.boss2RewardPaid ? 50 : 500;
+        // flag, mirroring flags.bossRewardPaid); a hard-mode rematch pays
+        // 100; any other repeat kill pays a 50-money consolation.
+        // player.updateMoney calls GameManager.save(), so the flag persists
+        // with the payout.
+        const reward = this.rematch ? 100 : (GameManager.flags.boss2RewardPaid ? 50 : 500);
         GameManager.flags.boss2RewardPaid = true;
         this.scene.player?.playerUI?.hideBossBar();
         this.barVisible = false;
@@ -418,6 +451,11 @@ export default class Boss2 extends BaseEnemy {
         this.dead = true;
         player.updateMoney(reward);
         this.dropFirstKillLoot();
+        // Rematch: leaving the arena and coming back re-spawns the boss in
+        // hard mode (see armRematchTrigger). First-kill loot is flag-guarded,
+        // so a rematch can never pay it twice.
+        this.armRematchTrigger(this.x, this.y,
+            () => this.scene.spawnManager?.spawnBoss2(this.x, this.y));
         this.emit('die', player);
         this.deactivate();
     }
@@ -427,18 +465,27 @@ export default class Boss2 extends BaseEnemy {
     // via GameManager.collectedItems without polluting the ◆ n/12 World 1
     // counter (World1 counts only 'w1-' ids) — same convention as the
     // Flowline boss's 'bossloot-' shards.
+    //
+    // The flag is set and saved only AFTER the spawns succeed (mirroring
+    // Boss.dropFirstKillLoot): if the spawnManager is missing, the flag
+    // stays unset and the loot is retried on the next kill instead of
+    // being lost forever with a burned flag. Drop points are nudged out
+    // of walls/lava via the shared BaseEnemy helper.
     dropFirstKillLoot() {
         if (GameManager.flags.boss2LootDropped) return;
-        GameManager.flags.boss2LootDropped = true;
-        GameManager.save();
         const sm = this.scene.spawnManager;
         if (!sm) return;
         const mkShardObj = (id) => ({ properties: [{ name: 'id', type: 'string', value: id }] });
-        sm.spawnShard(this.x - 90, this.y - 60, mkShardObj('w1boss-1'));
-        sm.spawnShard(this.x + 90, this.y - 60, mkShardObj('w1boss-2'));
-        sm.spawnCard(this.x, this.y - 100, {
+        const p1 = this.nudgeDropPoint(this.x - 90, this.y - 60);
+        const p2 = this.nudgeDropPoint(this.x + 90, this.y - 60);
+        const p3 = this.nudgeDropPoint(this.x, this.y - 100);
+        sm.spawnShard(p1.x, p1.y, mkShardObj('w1boss-1'));
+        sm.spawnShard(p2.x, p2.y, mkShardObj('w1boss-2'));
+        sm.spawnCard(p3.x, p3.y, {
             properties: [{ name: 'type', type: 'string', value: 'CardFireball' }],
         });
+        GameManager.flags.boss2LootDropped = true;
+        GameManager.save();
     }
 
     deactivate() {

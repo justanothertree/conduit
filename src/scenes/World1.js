@@ -14,7 +14,7 @@ import GameManager from "../things/GameManager.js";
 // the breach.
 //
 // Shard progress feeds PlayerUI's counter/banner (shardTotal + the
-// flowShardsFound() hook PlayerUI calls — it counts this level's 'w1-'
+// levelShardsFound() hook PlayerUI calls — it counts this level's 'w1-'
 // ids); shard persistence itself lives in GameManager.collectedItems.
 export default class World1 extends BaseGame {
     constructor() {
@@ -82,7 +82,7 @@ export default class World1 extends BaseGame {
     }
 
     // PlayerUI's shard HUD calls this hook by name; count World 1's ids.
-    flowShardsFound() {
+    levelShardsFound() {
         return this.w1ShardsFound();
     }
 

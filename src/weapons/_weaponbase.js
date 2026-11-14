@@ -54,6 +54,13 @@ export default class WeaponBase {
         return 1 - 0.10 * lvl;
     }
 
+    // Shard-shop Multishot line: +1 shurikan per throw per purchased
+    // level (up to +3). Read live from the save; WeaponShurikan
+    // fires the extras at a slight spread.
+    shardMultishot() {
+        return GameManager.upgrades?.shardShop?.multishot ?? 0;
+    }
+
     damageScaling() {
         const money = GameManager.power.money;
         if (!money) return 1;
@@ -107,20 +114,33 @@ export default class WeaponBase {
     onBlur() { }
 
     calculateShot(pointer, scale = 1, rayThickness = 26) {
+        // Plain {x, y} objects, not Vector2s: the old version allocated
+        // ~8 Vector2s per shot (start/end/cursorPos/direction/vector plus
+        // the intermediates), and every consumer only ever reads .x/.y —
+        // the melee ray path even stores the result in rayTickData and
+        // reads it across frames, so the retained object was a Vector2
+        // too. The shurikan socket emit serializes to the same
+        // {"x","y"} JSON either way. The zero-length guard matches
+        // Phaser's Vector2.normalize, which leaves (0, 0) untouched.
         const x = this.player.x;
         const y = this.player.y - this.headOffset;
-        const pxy = new Phaser.Math.Vector2(x, y);
         const cursorPos = pointer.positionToCamera(this.scene.cameras.main);
-        const tempDirection = new Phaser.Math.Vector2(cursorPos.x - x, cursorPos.y - y).normalize();
-        const scaledDistance = tempDirection.clone().scale(scale);
+        const dx = cursorPos.x - x;
+        const dy = cursorPos.y - y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const inv = len > 0 ? 1 / len : 0;
+        const dirX = dx * inv;
+        const dirY = dy * inv;
+        const vecX = dirX * scale;
+        const vecY = dirY * scale;
 
         return {
-            start: pxy.clone(),
-            end: pxy.clone().add(scaledDistance),
-            cursorPos: cursorPos.clone(),
-            direction: tempDirection.clone(),
+            start: { x, y },
+            end: { x: x + vecX, y: y + vecY },
+            cursorPos: { x: cursorPos.x, y: cursorPos.y },
+            direction: { x: dirX, y: dirY },
             distance: scale,
-            vector: scaledDistance.clone(),
+            vector: { x: vecX, y: vecY },
             rayThickness: rayThickness,
         };
     }

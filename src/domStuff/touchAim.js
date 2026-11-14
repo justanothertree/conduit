@@ -57,8 +57,10 @@ export function computeTouchAim(player, range = TOUCH_AIM_RANGE) {
 // churn on the touch path — the dark-orb fix from Day 45 only helped
 // desktop, because the fake pointer ignored the output vector it was
 // passed. Mirrors Phaser's real Pointer, which writes into an optional
-// output vector when one is given. Safe: calculateShot clones the
-// result immediately, and DarkOrbProjectile reads it in the same frame.
+// output vector when one is given. Safe: calculateShot reads the aim
+// coordinates into plain numbers immediately (and DarkOrbProjectile
+// reads its result in the same frame), so the reused scratch vector
+// is never aliased anywhere.
 export function getTouchAimPointer(player) {
     if (!player.touchAimPointer) {
         const aimVec = new Phaser.Math.Vector2();

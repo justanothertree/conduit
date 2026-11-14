@@ -51,7 +51,7 @@ export default class LevelFlow extends BaseGame {
         }).setOrigin(.5);
     }
 
-    flowShardsFound() {
+    levelShardsFound() {
         return GameManager.collectedItems.filter(
             (id) => typeof id === 'string' && id.startsWith('flow-')).length;
     }
@@ -60,7 +60,7 @@ export default class LevelFlow extends BaseGame {
     // and banner live in PlayerUI now; the reward behavior is unchanged.
     onShardCollected() {
         this.playerUI?.updateShardHud?.();
-        const found = this.flowShardsFound();
+        const found = this.levelShardsFound();
         if (found >= this.shardTotal && !GameManager.flags.flowComplete) {
             GameManager.flags.flowComplete = true;
             GameManager.power.money += 500;

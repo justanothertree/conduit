@@ -1,3 +1,5 @@
+import GameManager from "./GameManager.js";
+
 export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     constructor(scene, x, y, id = 'duck', health = 1) {
         super(scene, x, y, id);
@@ -86,9 +88,19 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         if (this.dead || !this.canDamage) return false;
         if (!this.createdHealthBar) this.createHealthBar();
 
-        this.applyDamage(x, y, damage, stunDuration);
+        const ok = this.applyDamage(x, y, damage, stunDuration);
 
-        return true;
+        // Shard-shop Lifesteal line: landing a hit on a boss feeds a
+        // little health back (+1 HP per hit per level). Bosses only
+        // (name 'boss'/'boss2') — regular enemies don't trigger it.
+        if (ok) {
+            const lvl = GameManager.upgrades?.shardShop?.lifesteal ?? 0;
+            if (lvl > 0 && (this.name === 'boss' || this.name === 'boss2')) {
+                this.player?.adjustHealth?.(lvl);
+            }
+        }
+
+        return ok;
 
     }
 
@@ -351,5 +363,73 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         const dy = player.y - this.y;
 
         return Math.sqrt(dx * dx + dy * dy); // Euclidean distance
+    }
+
+    // Boss rematch trigger: after a boss dies, watch for the player
+    // leaving the arena (>900px away) and coming back (<600px), then
+    // re-spawn the boss in hard mode via spawnFn. A 10s grace after
+    // death keeps the trigger from firing while the player is still
+    // collecting first-kill loot. The check lives on the scene clock,
+    // so it dies with the scene on level exit — no cross-scene leaks —
+    // and removes itself once fired.
+    armRematchTrigger(x, y, spawnFn) {
+        const scene = this.scene;
+        if (!scene) return;
+        const readyAt = scene.time.now + 10000;
+        let armed = false;
+        const check = scene.time.addEvent({
+            delay: 500,
+            loop: true,
+            callback: () => {
+                const p = scene.player;
+                if (!p) return;
+                const dx = p.x - x, dy = p.y - y;
+                const d = Math.sqrt(dx * dx + dy * dy);
+                if (!armed) {
+                    if (d > 900 && scene.time.now >= readyAt) armed = true;
+                    return;
+                }
+                if (d < 600) {
+                    scene.time.removeEvent(check);
+                    spawnFn();
+                }
+            },
+        });
+        scene.events.once('shutdown', () => scene.time.removeEvent(check));
+    }
+
+    // Nudge a loot drop point out of solid geometry. Probes the walls layer
+    // (stone) and the walls2 layer (lava, fire damage) with the same
+    // getTileAtWorldXY pattern used in snapToGround, walking the point up —
+    // then sideways — until it sits in free air. Falls back to the
+    // unnudged point: a pickup inside geometry is still better than no loot.
+    // Shared by both bosses' first-kill loot (was Boss-only).
+    nudgeDropPoint(x, y) {
+        const walls = this.scene.walls;
+        const lava = this.scene.walls2;
+        if (!walls && !lava) return { x, y };
+        const blocked = (px, py) => {
+            if (walls) {
+                const wt = walls.getTileAtWorldXY(px, py);
+                if (wt && wt.index !== -1) return true;
+            }
+            if (lava) {
+                const lt = lava.getTileAtWorldXY(px, py);
+                if (lt && lt.index !== -1) return true;
+            }
+            return false;
+        };
+        if (!blocked(x, y)) return { x, y };
+        // Walk upward in 32px steps — the drops are airborne pickups.
+        let nx = x, ny = y;
+        for (let i = 0; i < 12 && blocked(nx, ny); i++) ny -= 32;
+        if (!blocked(nx, ny)) return { x: nx, y: ny };
+        // Then sweep sideways at the original height.
+        for (const dx of [64, -64, 128, -128, 192, -192]) {
+            nx = x + dx;
+            ny = y;
+            if (!blocked(nx, ny)) return { x: nx, y: ny };
+        }
+        return { x, y };
     }
 }

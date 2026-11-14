@@ -59,6 +59,13 @@ export default class Boss extends BaseEnemy {
         this.bossShots = [];    // own projectile refs, for the MAX_SHOTS cap
         this.arenaLeft = 0;     // computed in activate() from the walls layer
         this.arenaRight = 0;
+        // Rematch mode: after the first kill, re-fights are hard mode —
+        // faster volley cadence (rateMult) and faster bullets
+        // (shotSpeedMult). HP and patrol speeds are unchanged, and the
+        // 36-bullet cap still applies. Set in activate().
+        this.rematch = false;
+        this.rateMult = 1;
+        this.shotSpeedMult = 1;
         // NOTE: scaleCollision is NOT called here — this.body is null until
         // the sprite joins the physics world (Group.add). It's called in
         // activate() instead, like Bat/Duck/Sunman do in init().
@@ -93,18 +100,40 @@ export default class Boss extends BaseEnemy {
         }
     }
 
-    activate(x, y, health = Boss.MAX_HEALTH) {
+    activate(x, y, health = Boss.MAX_HEALTH, rematch = false) {
         super.activate(x, y, health);
         this.setScale(.75);
         this.setTint(0xcc55ff); // activate() clears tint
         this.scaleCollision(60, 60); // body exists now (in the physics world)
+        // Rematch (hard mode): faster volleys and faster bullets. HP and
+        // patrol speeds are deliberately unchanged — the fight gets
+        // denser, not tankier or quicker on foot.
+        this.rematch = rematch;
+        this.rateMult = rematch ? 0.7 : 1;
+        this.shotSpeedMult = rematch ? 1.15 : 1;
+        if (rematch) {
+            const label = this.scene.add.text(x, y - 130, 'REMATCH', {
+                fontSize: '28px',
+                color: '#ff5555',
+                fontStyle: 'bold',
+                stroke: '#000000',
+                strokeThickness: 5,
+            }).setOrigin(.5);
+            this.scene.tweens.add({
+                targets: label,
+                alpha: 0,
+                delay: 1500,
+                duration: 600,
+                onComplete: () => label.destroy(),
+            });
+        }
         // Spawn fix: the boss used to spawn in mid-air, fall through the
         // arena floor and wedge itself in a corner. Snap it onto solid
         // ground below the spawn point (computed from the walls layer, so no
         // tilemap edits needed) and derive the arena bounds for movement.
         this.snapToGround(x, y);
         this.phase = 1;
-        this.fireRate = 2500;
+        this.fireRate = 2500 * this.rateMult;
         this.speed = 160;
         this.volleyKind = 0;
         this.windingUp = false;
@@ -192,10 +221,10 @@ export default class Boss extends BaseEnemy {
         if (phase === this.phase) return;
         this.phase = phase;
         if (phase === 2) {
-            this.fireRate = 2200;
+            this.fireRate = 2200 * this.rateMult;
             this.speed = 220;
         } else {
-            this.fireRate = 1600;
+            this.fireRate = 1600 * this.rateMult;
             this.speed = 300;
         }
         // Don't cut the telegraph flash short: if a volley is winding up,
@@ -345,6 +374,7 @@ export default class Boss extends BaseEnemy {
     // One fireball — same projectile setup as the turret's aimed shots
     // (Bullet + 'fireballsheet' + softBulletGroup, 4s lifespan so shots
     // can't fly forever). Skipped when the concurrent-projectile cap is hit.
+    // Rematch mode fires faster bullets (shotSpeedMult); the cap is unchanged.
     fireBullet(angleDeg, speed = 450) {
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup) return;
@@ -354,7 +384,7 @@ export default class Boss extends BaseEnemy {
         const bullet = new Bullet(this.scene, this.x, this.y, 'fireballsheet');
         sm.softBulletGroup.add(bullet);
         bullet.play('fireball');
-        this.scene.physics.velocityFromAngle(angleDeg, speed, bullet.body.velocity);
+        this.scene.physics.velocityFromAngle(angleDeg, speed * this.shotSpeedMult, bullet.body.velocity);
         this.bossShots.push(bullet);
         this.scene.time.delayedCall(4000, () => {
             if (bullet.active) bullet.destroy();
@@ -363,16 +393,22 @@ export default class Boss extends BaseEnemy {
 
     die(player) {
         // Boss bounty: full 500 only on the first kill of the save (one-time
-        // flag, mirroring flags.flowComplete); repeat kills pay a 50-money
-        // consolation. player.updateMoney calls GameManager.save(), so the
-        // flag persists with the payout.
-        const reward = GameManager.flags.bossRewardPaid ? 50 : 500;
+        // flag, mirroring flags.flowComplete); a hard-mode rematch pays 100;
+        // any other repeat kill pays a 50-money consolation.
+        // player.updateMoney calls GameManager.save(), so the flag persists
+        // with the payout.
+        const reward = this.rematch ? 100 : (GameManager.flags.bossRewardPaid ? 50 : 500);
         GameManager.flags.bossRewardPaid = true;
         this.scene.player?.playerUI?.hideBossBar();
         this.barVisible = false;
         this.dead = true;
         player.updateMoney(reward);
         this.dropFirstKillLoot();
+        // Rematch: leaving the arena and coming back re-spawns the boss in
+        // hard mode (see armRematchTrigger). First-kill loot is flag-guarded,
+        // so a rematch can never pay it twice.
+        this.armRematchTrigger(this.x, this.y,
+            () => this.scene.spawnManager?.spawnBoss(this.x, this.y));
         this.emit('die', player);
         this.deactivate();
     }
@@ -380,7 +416,7 @@ export default class Boss extends BaseEnemy {
     // First-kill loot: two persistent shards plus one good weapon card,
     // dropped near the arena. The shards use 'bossloot-' ids so they persist
     // via GameManager.collectedItems without polluting the ◆ n/12 Flowline
-    // counter (flowShardsFound only counts 'flow-' ids).
+    // counter (levelShardsFound only counts 'flow-' ids).
     //
     // The flag is set and saved only AFTER the spawns succeed: if the
     // spawnManager is missing, the flag stays unset and the loot is retried
@@ -400,40 +436,6 @@ export default class Boss extends BaseEnemy {
         });
         GameManager.flags.bossLootDropped = true;
         GameManager.save();
-    }
-
-    // Nudge a loot drop point out of solid geometry. Probes the walls layer
-    // (stone) and the walls2 layer (lava, fire damage) with the same
-    // getTileAtWorldXY pattern used in snapToGround, walking the point up —
-    // then sideways — until it sits in free air. Falls back to the
-    // unnudged point: a pickup inside geometry is still better than no loot.
-    nudgeDropPoint(x, y) {
-        const walls = this.scene.walls;
-        const lava = this.scene.walls2;
-        if (!walls && !lava) return { x, y };
-        const blocked = (px, py) => {
-            if (walls) {
-                const wt = walls.getTileAtWorldXY(px, py);
-                if (wt && wt.index !== -1) return true;
-            }
-            if (lava) {
-                const lt = lava.getTileAtWorldXY(px, py);
-                if (lt && lt.index !== -1) return true;
-            }
-            return false;
-        };
-        if (!blocked(x, y)) return { x, y };
-        // Walk upward in 32px steps — the drops are airborne pickups.
-        let nx = x, ny = y;
-        for (let i = 0; i < 12 && blocked(nx, ny); i++) ny -= 32;
-        if (!blocked(nx, ny)) return { x: nx, y: ny };
-        // Then sweep sideways at the original height.
-        for (const dx of [64, -64, 128, -128, 192, -192]) {
-            nx = x + dx;
-            ny = y;
-            if (!blocked(nx, ny)) return { x: nx, y: ny };
-        }
-        return { x, y };
     }
 
     deactivate() {

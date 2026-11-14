@@ -60,6 +60,12 @@
 #shard-shop .ss-balance {
     font-size: 16px;
     color: #ffd75e;
+    margin-bottom: 2px;
+}
+
+#shard-shop .ss-totals {
+    font-size: 14px;
+    color: #9db8cc;
     margin-bottom: 12px;
 }
 

@@ -18,7 +18,8 @@ Layout (tiles, 32px; map is 140x80, y grows downward):
   C  The pit       x 48-72    lava pit with platform hops, bats, turret on
                              the far shore, checkpoint 2 at the exit
   D  Charger den   x 74-106   open arena: 3 chargers, 2 turrets on ledges,
-                             cover blocks, antechamber with checkpoint 3
+                             2 bombers overhead, cover blocks, antechamber
+                             with checkpoint 3 and a 3rd bomber
   E  Boss arena    x 108-130  Iron Warden (boss 2), cover, ground doorway in
                              the left wall, climb-out over the right wall
   F  Vault         x 131-138  finish line, Home return portal, card, shard
@@ -172,6 +173,8 @@ add("spawnTurret", 91, 56)               # turret 5 on the east ledge
 add("spawnCharger", 81, 66)
 add("spawnCharger", 87, 66)
 add("spawnCharger", 93, 66)
+add("spawnBomber", 82, 54)               # bomber 1: over the den, west
+add("spawnBomber", 93, 54)               # bomber 2: over the den, east
 add("spawnSourceBlock", 84, 66)          # cover
 add("spawnSourceBlock", 96, 66)          # cover
 for i in range(76, 97, 2):
@@ -182,6 +185,7 @@ shard(97, 64)                            # w1-08: east corner
 rect(walls, 99, 70, 106, 79, STONE)
 add("spawnText", 101, 62, text="BOSS AHEAD")
 add("spawnDashBuff", 103, 66)
+add("spawnBomber", 102, 56)              # bomber 3: over the antechamber
 checkpoint(104, 66)                      # checkpoint 3: boss antechamber
 
 # ---- E: boss arena (Iron Warden)
@@ -315,7 +319,8 @@ names = {o["name"] for o in objects}
 KNOWN = {"spawnPlayer", "spawnCoin", "spawnDuck", "spawnBat", "spawnSunman",
          "spawnBoss", "spawnBoss2", "spawnShard", "spawnCard", "spawnBooster",
          "spawnDashBuff", "spawnPortal", "spawnSourceBlock", "spawnFinishLine",
-         "spawnText", "spawnTurret", "spawnCharger", "spawnCheckpoint"}
+         "spawnText", "spawnTurret", "spawnCharger", "spawnBomber",
+         "spawnCheckpoint"}
 for n in names - KNOWN:
     errors.append(f"unknown spawn name: {n}")
 for o in objects:
@@ -345,16 +350,20 @@ for req in ["spawnPlayer", "spawnFinishLine", "spawnBoss2"]:
     if counts.get(req, 0) != 1:
         errors.append(f"expected 1 {req}, got {counts.get(req, 0)}")
 for name, want in [("spawnTurret", 5), ("spawnCharger", 4),
-                   ("spawnCheckpoint", 4)]:
+                   ("spawnBomber", 3), ("spawnCheckpoint", 4)]:
     if counts.get(name, 0) != want:
         errors.append(f"expected {want} {name}, got {counts.get(name, 0)}")
 # enemies must not share a tile with any pre-existing object
+# (bombers fly, so they skip the solid-ground check above but still
+# must not share a tile)
 new_tiles = [(o["name"], o["x"] // 32, o["y"] // 32)
              for o in objects if o["name"] in ("spawnTurret", "spawnCharger",
-                                               "spawnBoss2", "spawnCheckpoint")]
+                                               "spawnBomber", "spawnBoss2",
+                                               "spawnCheckpoint")]
 other_tiles = {(o["x"] // 32, o["y"] // 32)
                for o in objects if o["name"] not in ("spawnTurret", "spawnCharger",
-                                                     "spawnBoss2", "spawnCheckpoint")}
+                                                     "spawnBomber", "spawnBoss2",
+                                                     "spawnCheckpoint")}
 for name, tx, ty in new_tiles:
     if (tx, ty) in other_tiles:
         errors.append(f"{name} overlaps an existing object at tile {tx},{ty}")
