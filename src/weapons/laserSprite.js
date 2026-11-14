@@ -24,6 +24,14 @@ export default class LaserSprite extends Phaser.GameObjects.TileSprite {
         this.setOrigin(0, 0.5);
         this.setTint('0xFF0000');
         scene.add.existing(this);
+
+        // Scratch objects reused by the per-frame boxTrace() — allocating a
+        // fresh Vector2/Line/Rectangle every frame (60x/sec per active laser)
+        // is steady GC churn on phones (same class as BaseEnemy.currentSpeed).
+        this._origin = new Phaser.Math.Vector2();
+        this._playerBounds = new Phaser.Geom.Rectangle();
+        this._ray = new Phaser.Geom.Line();
+        this._closest = new Phaser.Math.Vector2();
     }
 
     init(target) {
@@ -50,33 +58,33 @@ export default class LaserSprite extends Phaser.GameObjects.TileSprite {
     }
 
 boxTrace() {
-    const origin = this.getWorldPoint();
-    const direction = this.getForwardVector(this.length);
-    const ray = new Phaser.Geom.Line(origin.x, origin.y, origin.x + direction.x, origin.y + direction.y);
+    if (!this.player) return;
+    const origin = this.getWorldPoint(this._origin);
+    const dirX = Math.cos(this.rotation) * this.length;
+    const dirY = Math.sin(this.rotation) * this.length;
+    this._ray.setTo(origin.x, origin.y, origin.x + dirX, origin.y + dirY);
 
-    const playerBounds = Phaser.Geom.Rectangle.Inflate(this.player?.getBounds(), -15, -15);
-    if (!playerBounds) return;
+    // Shrink the bounds by 15px on each side, as before — Inflate mutates
+    // (and returns) the scratch rect, so no fresh Rectangle is allocated.
+    const playerBounds = Phaser.Geom.Rectangle.Inflate(
+        this.player.getBounds(this._playerBounds), -15, -15);
 
     // Check if the player is in front of the laser
-    const toPlayer = new Phaser.Math.Vector2(this.player.x - origin.x, this.player.y - origin.y);
-    if (toPlayer.dot(direction) < 0) return; // Behind the laser
+    const toPlayerX = this.player.x - origin.x;
+    const toPlayerY = this.player.y - origin.y;
+    if (toPlayerX * dirX + toPlayerY * dirY < 0) return; // Behind the laser
 
     // Ensure player is within max range
-    const closestPoint = getClosestPointOnRect(playerBounds, origin);
-    const distanceToTarget = Phaser.Math.Distance.BetweenPoints(origin, closestPoint);
+    const closestPoint = this._closest.set(
+        Phaser.Math.Clamp(origin.x, playerBounds.left, playerBounds.right),
+        Phaser.Math.Clamp(origin.y, playerBounds.top, playerBounds.bottom));
+    const distanceToTarget = Phaser.Math.Distance.Between(origin.x, origin.y, closestPoint.x, closestPoint.y);
     if (distanceToTarget > this.length) return;
 
     // Check actual intersection (only returns true/false)
-    const didHit = Phaser.Geom.Intersects.LineToRectangle(ray, playerBounds);
+    const didHit = Phaser.Geom.Intersects.LineToRectangle(this._ray, playerBounds);
     if (didHit) {
         this.player.hitLaser(closestPoint); // Or maybe use `this.player.x/y`
-
-        // Debug
-        // const gfx = this.scene.add.graphics();
-        // gfx.lineStyle(2, 0xff0000);
-        // gfx.strokeLineShape(ray);
-        // gfx.fillStyle(0x00ff00, 0.5);
-        // gfx.fillPoint(closestPoint.x, closestPoint.y, 4);
     }
 }
 
@@ -105,13 +113,11 @@ boxTrace() {
         })
     }
 
-    getForwardVector(length = 100) {
-        return new Phaser.Math.Vector2(Math.cos(this.rotation), Math.sin(this.rotation)).scale(length);
-    }
-
     updateZapLine() {
-        const dx = this.getForwardVector(this.length).x;
-        const dy = this.getForwardVector(this.length).y;
+        // Plain scalar math — getForwardVector used to allocate a fresh
+        // Vector2 here (twice per call, every frame) for the same cos/sin.
+        const dx = Math.cos(this.rotation) * this.length;
+        const dy = Math.sin(this.rotation) * this.length;
         const length = Math.sqrt(dx * dx + dy * dy);
         const angle = Math.atan2(dy, dx);
 
@@ -120,10 +126,4 @@ boxTrace() {
     }
 
 
-}
-
-function getClosestPointOnRect(rect, point) {
-    const x = Phaser.Math.Clamp(point.x, rect.left, rect.right);
-    const y = Phaser.Math.Clamp(point.y, rect.top, rect.bottom);
-    return new Phaser.Math.Vector2(x, y);
 }

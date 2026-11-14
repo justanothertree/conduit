@@ -141,17 +141,35 @@ function render(invScene) {
         }
     });
 
-    const talentEls = {};
     weaponUpgrades.forEach((upgrade) => {
         const cur = GameManager.upgrades[upgrade.id] ?? 0;
         const maxed = upgrade.maxRank >= 0 && cur >= upgrade.maxRank;
         const disabled = disabledIds.has(upgrade.id);
+        const selected = invScene._selectedTalent === upgrade.id;
+
+        // Accessible name: name, rank, cost, and state, refreshed on every
+        // render (same as the card grid's describeCard).
+        const describeTalent = () => {
+            const parts = [upgrade.tooltip || upgrade.id];
+            parts.push(maxed ? 'MAX' : rankText(upgrade));
+            if (!maxed) parts.push(costText(upgrade));
+            if (disabled) parts.push('disabled');
+            if (selected) parts.push('selected');
+            return parts.join(', ');
+        };
 
         const el = document.createElement('div');
         el.className = 'inv-talent' + (maxed ? ' maxed' : '');
+        el.dataset.talentId = upgrade.id;
+        // Keyboard + screen-reader access (same pattern as the card grid):
+        // talent rows are clickable divs, so they need button semantics.
+        el.setAttribute('role', 'button');
+        el.setAttribute('tabindex', '0');
+        el.setAttribute('aria-expanded', selected ? 'true' : 'false');
+        if (disabled) el.setAttribute('aria-disabled', 'true');
+        el.setAttribute('aria-label', describeTalent());
         if (disabled) el.style.opacity = '0.4';
-        if (invScene._selectedTalent === upgrade.id) el.classList.add('selected');
-        talentEls[upgrade.id] = el;
+        if (selected) el.classList.add('selected');
 
         const nameRow = document.createElement('div');
         nameRow.className = 'inv-talent-name';
@@ -165,11 +183,34 @@ function render(invScene) {
 
         // Tap to inspect (no hover on mobile). Disabled talents can't be
         // selected.
-        el.addEventListener('click', (e) => {
-            if (e.target.classList.contains('inv-buy')) return;
+        const toggleInspect = () => {
             if (disabled) return;
             invScene._selectedTalent = invScene._selectedTalent === upgrade.id ? null : upgrade.id;
             render(invScene);
+            // render() rebuilds the rows, so restore focus to this talent.
+            talentsEl.querySelector(`[data-talent-id="${upgrade.id}"]`)?.focus();
+        };
+
+        el.addEventListener('click', (e) => {
+            if (e.target.classList.contains('inv-buy')) return;
+            toggleInspect();
+        });
+
+        // Keyboard mirror of tap-to-inspect: Enter/Space toggles the detail.
+        // Ignored when the nested Buy button has focus — its own keydown
+        // handles that press. stopPropagation keeps the press from the
+        // window-level chat Enter handler and the game keys while a talent
+        // is focused — focus owns the key, same as the chat input and the
+        // card grid. Key repeat is ignored: a held Enter would otherwise
+        // toggle inspect repeatedly as render re-creates the row.
+        el.addEventListener('keydown', (e) => {
+            if (e.repeat) return;
+            if (e.target !== el) return;
+            if (e.code === 'Enter' || e.code === 'Space') {
+                e.preventDefault(); // Space would scroll the page
+                e.stopPropagation();
+                toggleInspect();
+            }
         });
 
         if (invScene._selectedTalent === upgrade.id && !maxed && !disabled) {

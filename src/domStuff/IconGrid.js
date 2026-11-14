@@ -74,6 +74,16 @@ export function addCard(icon, onClickHandler) {
     label.classList.add('card-label');
     label.textContent = icon.money ?? '';
 
+    // Screen-reader + keyboard access: a card is interactive (tap to
+    // consume, hold to lock) but a plain div, so give it button semantics
+    // and a keyboard path mirroring the pointer gestures. The label states
+    // the card's value and lock state, and is refreshed whenever the lock
+    // flips.
+    const describeCard = () => `${icon.title ?? 'Card'} card, ${icon.money ?? 1} money${icon.locked ? ', locked' : ''}`;
+    wrapper.setAttribute('role', 'button');
+    wrapper.setAttribute('tabindex', '0');
+    wrapper.setAttribute('aria-label', describeCard());
+
     let holdTimer;
     let justUnlocked = false;
 
@@ -96,16 +106,21 @@ export function addCard(icon, onClickHandler) {
             img.style.outline = ''; // Remove border
             justUnlocked = true;
         }
+        wrapper.setAttribute('aria-label', describeCard());
     };
 
-    const consumeCard = () => {
+    const consumeCard = (fromKeyboard = false) => {
         if (icon.locked) return; // Ignore clicks on locked icons
         if (justUnlocked) {
             justUnlocked = false;
             return;
         }
         onClickHandler(icon, img);
+        // Keyboard users: keep focus in the grid — move to the next card
+        // so consuming doesn't drop focus to the page body.
+        const nextCard = fromKeyboard ? wrapper.nextElementSibling : null;
         wrapper.remove(); // remove whole card container
+        nextCard?.focus?.();
     };
 
     wrapper.appendChild(img);
@@ -144,6 +159,24 @@ export function addCard(icon, onClickHandler) {
 
     wrapper.addEventListener('mouseleave', () => {
         clearTimeout(holdTimer);
+    });
+
+    // Keyboard mirror of the pointer gestures: Enter/Space consumes (like a
+    // tap), L toggles the lock (like the 800ms hold). stopPropagation keeps
+    // these presses from reaching the window-level chat Enter handler and
+    // the game keys while a card is focused — focus owns the key, same as
+    // the chat input. Key repeat is ignored: a held Enter would otherwise
+    // consume card after card as focus hops to the next sibling.
+    wrapper.addEventListener('keydown', (e) => {
+        if (e.repeat) return;
+        if (e.code === 'Enter' || e.code === 'Space') {
+            e.preventDefault(); // Space would scroll the page
+            e.stopPropagation();
+            consumeCard(true);
+        } else if (e.code === 'KeyL') {
+            e.stopPropagation();
+            toggleLock();
+        }
     });
 
     // Touch: tap to consume, press-and-hold (800ms) to lock/unlock —

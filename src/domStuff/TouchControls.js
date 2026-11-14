@@ -40,6 +40,31 @@ const buzz = (ms = 8) => {
 const gameScene = () => document.activeGameScene || null;
 const emitGameKey = (code) => gameScene()?.input?.keyboard?.emit(code);
 
+// Slide-off tracking shared by the hold buttons (the action buttons below
+// and the Heal menu button): touchmove still dispatches to the touch's
+// start target, so check the point against the button's rect — a finger
+// that slides off releases the button, sliding back on without lifting
+// re-presses it. `touches` is the caller's per-button held-touch set.
+function bindSlideOff(btn, touches, onPress, onRelease) {
+    btn.addEventListener('touchmove', (e) => {
+        const r = btn.getBoundingClientRect();
+        for (const t of e.changedTouches) {
+            const inside = t.clientX >= r.left && t.clientX <= r.right &&
+                t.clientY >= r.top && t.clientY <= r.bottom;
+            if (touches.has(t.identifier) && !inside) {
+                touches.delete(t.identifier);
+            } else if (!touches.has(t.identifier) && inside) {
+                // Slid back on without lifting — re-press.
+                touches.add(t.identifier);
+                onPress();
+            }
+        }
+        if (touches.size === 0 && btn.classList.contains('pressed')) {
+            onRelease();
+        }
+    }, { passive: true });
+}
+
 function setMoveFlags({ left, right, crouch }) {
     if (document.leftButton) document.leftButton.isClicked = left;
     if (document.rightButton) document.rightButton.isClicked = right;
@@ -139,6 +164,9 @@ export function setupTouchControls() {
     function holdButton(label, cls, flag, extraDown, extraUp) {
         const btn = document.createElement('div');
         btn.className = `tc-btn ${cls}`;
+        // Divs, not <button>s — expose button semantics to screen readers.
+        btn.setAttribute('role', 'button');
+        btn.setAttribute('aria-label', label);
         btn.innerHTML = `<span>${label}</span>`;
         const touches = new Set();
         btn.addEventListener('touchstart', (e) => {
@@ -160,33 +188,18 @@ export function setupTouchControls() {
         };
         btn.addEventListener('touchend', release);
         btn.addEventListener('touchcancel', release);
-        // A finger sliding off the button releases it (touchmove still
-        // dispatches to the touch's start target, so check the point
-        // against the button's rect). Otherwise a missed slide keeps
-        // the button held until the finger lifts. Sliding back onto the
-        // button without lifting re-presses it.
-        btn.addEventListener('touchmove', (e) => {
-            const r = btn.getBoundingClientRect();
-            for (const t of e.changedTouches) {
-                const inside = t.clientX >= r.left && t.clientX <= r.right &&
-                    t.clientY >= r.top && t.clientY <= r.bottom;
-                if (touches.has(t.identifier) && !inside) {
-                    touches.delete(t.identifier);
-                } else if (!touches.has(t.identifier) && inside) {
-                    // Slid back on without lifting — re-press.
-                    touches.add(t.identifier);
-                    if (flag) flag.isClicked = true;
-                    btn.classList.add('pressed');
-                    buzz();
-                    extraDown?.();
-                }
-            }
-            if (touches.size === 0 && btn.classList.contains('pressed')) {
+        bindSlideOff(btn, touches,
+            () => {
+                if (flag) flag.isClicked = true;
+                btn.classList.add('pressed');
+                buzz();
+                extraDown?.();
+            },
+            () => {
                 if (flag) flag.isClicked = false;
                 btn.classList.remove('pressed');
                 extraUp?.();
-            }
-        }, { passive: true });
+            });
         actions.appendChild(btn);
         return btn;
     }
@@ -208,6 +221,8 @@ export function setupTouchControls() {
     // ------------------------------------------------------- pause + menu
     const pauseBtn = document.createElement('div');
     pauseBtn.id = 'tc-pause';
+    pauseBtn.setAttribute('role', 'button');
+    pauseBtn.setAttribute('aria-label', 'Menu');
     pauseBtn.innerHTML = '<span>☰</span>';
     root.appendChild(pauseBtn);
 
@@ -230,6 +245,8 @@ export function setupTouchControls() {
     function menuButton(label, onTap, hold) {
         const btn = document.createElement('div');
         btn.className = 'tc-menu-btn';
+        btn.setAttribute('role', 'button');
+        btn.setAttribute('aria-label', label);
         btn.textContent = label;
         if (hold) {
             const touches = new Set();
@@ -245,6 +262,9 @@ export function setupTouchControls() {
             };
             btn.addEventListener('touchend', release);
             btn.addEventListener('touchcancel', release);
+            bindSlideOff(btn, touches,
+                () => { btn.classList.add('pressed'); onTap(true); buzz(); },
+                () => { btn.classList.remove('pressed'); onTap(false); });
         } else {
             btn.addEventListener('touchstart', (e) => {
                 e.stopPropagation(); e.preventDefault(); buzz(); onTap();

@@ -126,13 +126,6 @@ export default class SpawnManager {
         }
         this.respawn(duck, x, y, health, this.spawnDuck.bind(this))
 
-        // if (duck && duck.isPooled) {
-        //     duck.activate(x, y, health);
-        // } else {
-        //     //duck = new Duck(this.scene, x, y, health);
-        //     duck = this.duckGroup.create(x, y, health);
-        //     //this.duckGroup.add(duck);
-        // }
         return duck;
     }
 
@@ -364,18 +357,6 @@ export default class SpawnManager {
     }
 
     spawnCard(x, y, obj, type = null, value = null) {
-        // const props = getProperty(obj);
-        // let card = this.batGroup.getFirst(false);
-
-        // if (card && card.activate(x, y,  props?.icon || null, props?.value || null)) {
-        //     card.init();
-        //     return card;
-        // }
-        // // Create new if no usable bat
-        // card = new CardPickup(this.scene, x, y,  props?.icon || null, props?.value || null);
-        // this.cardGroup.add(card);
-        // card.init();
-        // return card;
         const props = getProperty(obj);
         const card = new CardPickup(this.scene, x, y, props?.type || type || null, props?.value || value || null);
         this.cardGroup.add(card);

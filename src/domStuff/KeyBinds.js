@@ -42,6 +42,13 @@ export function addButton(imgSrc, key, action = 'Interact', row = 1, col = 1, wi
     button.className = 'kb-button';
     button.style.width = wid;
     button.dataset.action = action;
+    // Divs, not <button>s — expose button semantics to screen readers, the
+    // same as the touch controls (Day 47). The label names the action and
+    // the key it mirrors, matching the visible key + action text. No
+    // tabindex: the action is already keyboard-operable via the mirrored key.
+    const displayKey = labelOverride || key.replace('Key', '');
+    button.setAttribute('role', 'button');
+    button.setAttribute('aria-label', `${action} (${displayKey})`);
 
     button.style.gridRow = row;
     button.style.gridColumn = col;
@@ -49,14 +56,11 @@ export function addButton(imgSrc, key, action = 'Interact', row = 1, col = 1, wi
     const img = document.createElement('img');
     img.className = 'kb-image';
     img.src = `assets/${imgSrc}.png`;
+    img.alt = ''; // decorative — the button's aria-label carries the meaning
 
     const label = document.createElement('div');
     label.className = 'kb-label';
-    if (labelOverride) {
-        label.textContent = labelOverride;
-    } else {
-        label.textContent = key.replace('Key', '');
-    }
+    label.textContent = displayKey;
 
     const info = document.createElement('div');
     info.className = 'kb-info';
@@ -136,11 +140,18 @@ export function addSettingsButton(callbackActive, callbackInActive, texture = 'S
     const img = document.createElement('img');
     img.className = 'kb-settingsimage';
     img.src = 'assets/' + texture + '.png';
+    img.alt = ''; // decorative — the button's aria-label carries the meaning
 
     button.appendChild(img);
     kbGrid.appendChild(button);
 
     button.dataset.action = texture;
+    // Same button semantics as addButton above. The label comes from the
+    // texture name ('SettingsButton' -> 'Settings', 'VoiceButton' ->
+    // 'Voice'). The debug button passes no texture, so it inherits the
+    // default 'Settings' label — same as its dataset.action already does.
+    button.setAttribute('role', 'button');
+    button.setAttribute('aria-label', texture.replace(/Button$/, ''));
 
     const active = () => {
         img.src = 'assets/' + texture + 'Press' + '.png';

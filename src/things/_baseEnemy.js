@@ -38,6 +38,14 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         this.prevPos = new Phaser.Math.Vector2(x, y);
         this.targetPos = new Phaser.Math.Vector2(x, y);
         this.lerpDuration = 33;
+        // Scratch vectors for currentSpeed(): it runs on every scene update
+        // for every enemy, so allocating two fresh Vector2s per call per
+        // enemy was steady per-frame GC churn (notable on phones). The
+        // values produced are identical — only the object identity changes,
+        // and nothing outside this method holds the old objects except
+        // movementDirection, which locoAnims reads as plain x/y.
+        this._speedCur = new Phaser.Math.Vector2(x, y);
+        this._speedDelta = new Phaser.Math.Vector2();
 
         this.scene.events.on('update', this.currentSpeed, this)
 
@@ -59,10 +67,8 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     createHealthBar() {
         this.createdHealthBar = true;
         this.healthBarWidth = Phaser.Math.Clamp(this.maxHealth * 8, 16, 128);
-        //this.healthBarBg = this.scene.add.rectangle(this.x, this.y - this.displayHeight / 2 - 6, this.healthBarWidth, 6, 0x000000, 0.6);
         this.healthBar = this.scene.add.rectangle(this.x, this.y - this.displayHeight / 2 - 6, this.healthBarWidth, 6, 0xff0000, 1);
         this.healthBar.setOrigin(0.5);
-        //this.healthBarBg.setOrigin(0.5);
     }
 
     updateHealthBar() {
@@ -74,21 +80,11 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         // Positioning
         this.healthBar.x = this.x;
         this.healthBar.y = this.y - this.displayHeight / 2 - 6;
-        //this.healthBarBg.x = this.x;
-        //this.healthBarBg.y = this.y - this.displayHeight / 2 - 6;
     }
 
     TakeDamage(x, y, damage = 1, stunDuration = 300) {
         if (this.dead || !this.canDamage) return false;
         if (!this.createdHealthBar) this.createHealthBar();
-
-        // this.scene.network.socket.emit('enemyDamageRequest', {
-        //     id: this.id,
-        //     player: player,
-        //     damage,
-        //     stagger,
-        //     duration,
-        // })
 
         this.applyDamage(x, y, damage, stunDuration);
 
@@ -196,7 +192,6 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     deactivate() {
-        const now = Date.now();
         // Detach the update listener (registered in constructor) to avoid leaks.
         this.scene?.events.off('update', this.currentSpeed, this);
         if (this.healthBar) {
@@ -213,17 +208,9 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         this.body.stop();
         this.body.enable = false;
         this.dead = true;
-
-        this.lastActiveAt = now;
     }
 
     activate(x, y, health = 1) {
-        const now = Date.now();
-        // const cooldown = 1000; // 1 second cooldown
-
-        // if (this.lastActiveAt && (now - this.lastActiveAt) < cooldown) {
-        //     return false;
-        // }
         this.setActive(true);
         this.setVisible(true);
         this.setPosition(x, y);
@@ -235,8 +222,6 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         this.isPooled = false;
         this.health = health;
         this.maxHealth = health;
-
-        this.lastActiveAt = now;
 
         // Re-register the update listener (removed in deactivate()).
         this.scene.events.off('update', this.currentSpeed, this);
@@ -267,14 +252,10 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     currentSpeed(time, delta) {
-        if (!this.prevPos) {
-            this.prevPos = new Phaser.Math.Vector2(this.x, this.y);
-            this.realSpeed = 0;
-            return;
-        }
-
-        const currentPos = new Phaser.Math.Vector2(this.x, this.y);
-        const deltaPos = currentPos.clone().subtract(this.prevPos);
+        // Reuse the scratch vectors (see constructor): same math as before,
+        // no per-frame allocation.
+        const currentPos = this._speedCur.set(this.x, this.y);
+        const deltaPos = this._speedDelta.copy(currentPos).subtract(this.prevPos);
         const dist = deltaPos.length();
 
         // Only update realSpeed if it actually moved
@@ -342,24 +323,16 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         }
     }
 
-    mapRangeClamped(value, inMin, inMax, outMin, outMax) {
-        if (inMin === inMax) return outMin; // Avoid divide by zero
-
-        // Normalize input range to 0–1
-        let t = (value - inMin) / (inMax - inMin);
-
-        // Clamp the normalized value
-        t = Math.max(0, Math.min(1, t));
-
-        // Remap to output range
-        return outMin + (outMax - outMin) * t;
-    }
-
-    getCurrentPos() {
-        return new Phaser.Math.Vector2(this.x, this.y);
-    }
-
     accelToPlayer(min, max) {
+        // The 1s timer below re-rolls the chase speed, but it calls this
+        // method with no arguments — so the range has to be remembered here.
+        // Before this, Between(undefined, undefined) was NaN after the first
+        // timer fire, and preUpdate's `if (this.accelToPlayerSpeed)` gate
+        // went falsy: bats and sunmen stopped homing ~1s after spawning.
+        if (min !== undefined) {
+            this._accelMin = min;
+            this._accelMax = max;
+        }
         if (!this.accelToPlayerTimer) {
             this.accelToPlayerTimer = this.scene.time.addEvent({
                 delay: 1000,
@@ -367,8 +340,7 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
                 callback: () => this.accelToPlayer()
             })
         }
-        const direction = new Phaser.Math.Vector2(this.player.x - this.x, this.player.y - this.y).normalize();
-        this.accelToPlayerSpeed = Phaser.Math.Between(min, max);
+        this.accelToPlayerSpeed = Phaser.Math.Between(this._accelMin, this._accelMax);
     }
 
     distanceToPlayer() {

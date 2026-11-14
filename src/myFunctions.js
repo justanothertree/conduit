@@ -16,10 +16,6 @@ export function changeCollision(object, x, y, xOffset = 0, yOffset = 0) {
     );
 }
 
-export function lerp(start, end, t) {
-    return start + (end - start) * t;
-}
-
 export function mapRangeClamped(value, inMin, inMax, outMin, outMax) {
     if (inMin === inMax) return outMin; // Avoid divide by zero
 

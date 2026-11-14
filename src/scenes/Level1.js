@@ -88,7 +88,13 @@ export default class Level1 extends BaseGame {
             loop: true
         });
 
-        this.events.on('shutdown', () => {
+        // enemyTimers runs on every Level1 create, but Phaser's
+        // Systems.shutdown() only emits 'shutdown' — it never removes
+        // listeners (only destroy() does), so a plain .on() would stack
+        // one timer-cleanup handler per visit on the same scene instance.
+        // .once() self-removes after firing, same replace-not-stack
+        // convention as the other per-level listeners (Days 14/19/20).
+        this.events.once('shutdown', () => {
             if (this.batTimer) { this.batTimer.remove(); this.batTimer = null; }
             if (this.sunTimer) { this.sunTimer.remove(); this.sunTimer = null; }
         });

@@ -22,8 +22,6 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
         : 'wss://webconduit.onrender.com';
 
 
-    //this.scene.events.on('shutdown', () => this.voiceChat.destroy());
-
     this.socket = io(serverURL, {
       reconnection: true,
       reconnectionAttempts: 10,
@@ -92,7 +90,6 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       console.log('Existing players received:', players);
       players.forEach(({ id, data }) => {
         if (id !== this.socket.id) {
-          //this.savedOtherPlayers = players;
           this.addOtherPlayer(id, data);
         }
       });
@@ -115,10 +112,6 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
 
     this.socket.on('droppedDueToInactivity', () => {
       console.warn('You were dropped due to inactivity. Resyncing...');
-
-      // Resend current state
-      // const data = GameManager.getNetworkData();
-      // this.socket.emit('playerSyncRequest', { x: 0, y: 0, data });
     });
 
     // General sync update

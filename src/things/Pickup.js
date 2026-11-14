@@ -9,8 +9,6 @@ export default class Pickup extends Phaser.Physics.Arcade.Sprite {
         this.pickupSound = 'pickup';
     }
 
-    init() { }
-
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
         const bounds = this.scene.physics.world.bounds;
@@ -37,7 +35,9 @@ export default class Pickup extends Phaser.Physics.Arcade.Sprite {
     }
 
     hit(player, damage, velocity) {
-        const smallerVelocity = velocity.clone().scale(.2);
-        this.setVelocity(smallerVelocity.x, smallerVelocity.y);
+        // Plain scalar math — velocity may be a Phaser Vector2 (projectile
+        // hits) or the plain {x, y} getKnockBack now returns (melee hits);
+        // either way only .x/.y are read.
+        this.setVelocity(velocity.x * 0.2, velocity.y * 0.2);
     }
 }

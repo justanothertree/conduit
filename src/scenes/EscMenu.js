@@ -30,8 +30,6 @@ export default class EscMenu extends Phaser.Scene {
         // shutdown on every respawn/portal, stacking keydown-ESC listeners
         // (Settings double-toggles closed on every odd respawn).
 
-        this.uiElements = [];
-
         this.network = NetworkManager.instance;
 
         // The menu is laid out for an 800x600 panel. Wrap everything in
@@ -137,11 +135,7 @@ export default class EscMenu extends Phaser.Scene {
         }).setOrigin(0.5);
         this.menuPanel.add(this.nameDisplay);
 
-        // Store all UI elements for visibility toggling
-        //this.uiElements.push(this.bg, this.nameDisplay, track, handle, track1, handle1, instructions, this.resetButton, resetText);
-
         // Hide initially
-        //this.setUIVisible(false);
 
 
 
@@ -380,12 +374,6 @@ export default class EscMenu extends Phaser.Scene {
             Math.max(0, (this.scale.height - 600 * s) / 2)
         );
     }
-
-    // setUIVisible(visible) {
-    //     this.uiElements.forEach(obj => obj.setVisible(visible));
-    //     if (this.nameInput) this.nameInput.setVisible(visible);
-    //     if (this.colorInput) this.colorInput.setVisible(visible);
-    // }
 
     setInitialVolume(volume) {
         // GameManager.volume persists master/music/voice only; the mic

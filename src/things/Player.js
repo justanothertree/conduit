@@ -2,7 +2,6 @@ import GameManager from "./GameManager.js";
 import NetworkManager from "./NetworkManager.js";
 import { createWeapon } from "../weapons/WeaponManager.js"
 import ChatBubble from "./chatBubble.js";
-import PlayerContainer from "./playerContainer.js";
 import SoundUtil, { playSound } from "./soundUtils.js";
 import { getChatting } from "../domStuff/Chat.js";
 import { getTouchAimPointer } from "../domStuff/touchAim.js";
@@ -64,20 +63,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         this.spawnBuffer = true;
         this.meditateTimer = 0;
 
-        // this.playerUI;
-        // if (!this.scene.scene.isActive('EscMenu')) {
-        // this.scene.scene.launch('EscMenu', { gameScene: this.scene });
-        // } else {
-
-        // }
-        // if (!this.scene.scene.isActive('Inventory')) {
-        // this.scene.scene.launch('Inventory', { player: this });
-        // }
-        // if (!this.scene.scene.isActive('PlayerUI')) {
-        // this.scene.scene.launch('PlayerUI', { player: this });
-        // }
-
-        // this.playerContainer = new PlayerContainer(scene, this.x, this.y);
         this.equipWeapon(GameManager.weapons.left, 0);
         this.equipWeapon(GameManager.weapons.right, 1);
         this.equipWeapon('zap', 2)
@@ -106,9 +91,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
                 const worldPos = pointer.positionToCamera(this.scene.cameras.main);
                 this.setPosition(worldPos.x, worldPos.y);
                 this.setVelocity(0);
-            } else {
-                // const distance = new Phaser.Math.Vector2(pointer)
-                // scene.cameras.main.setOffset
             }
         });
         this.scene.input.keyboard.on('keydown-G', (e) => {
@@ -234,7 +216,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
         if (this.chatBubble) this.chatBubble.setPosition(this.x, this.y - 100);
-        if (this.playerContainer) this.playerContainer.setPosition(this.x, this.y);
 
         if (this.alive && !this.stunned) {
             // Each weapon slot updates/fires independently: a null slot
@@ -393,37 +374,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         this.scene.scene.restart()
     }
 
-    // touchWall(player, platform) {
-    //     if (this.body.blocked.down) {
-    //         this.resetJump();
-    //         this.resetDash();
-    //     }
-
-    //     if (this.body.blocked.left || this.body.blocked.right) {
-    //         this.resetJump(200);
-    //         this.wallJumpX = this.body.blocked.left ? 400 : -400;
-    //         this.wallJump = true;
-    //         this.setMaxVelocity(1000, 50);
-
-    //         console.log('touching wall')
-
-    //         if (this.dashTween) {
-    //             this.dashTween.stop();
-    //             this.isDashing = false;
-    //         }
-    //     }
-    // }
-
     touchFireWall(wall) {
-        // const tileWorldX = wall.getCenterX();
-        // const tileWorldY = wall.getCenterY();
-        // const rawDirection = new Phaser.Math.Vector2(this.x - tileWorldX, this.y - tileWorldY);
-        // const angle = Phaser.Math.Snap.To(rawDirection.angle(), Phaser.Math.DegToRad(90)); // Snap to 90°
-        // const direction = new Phaser.Math.Vector2(Math.cos(angle), Math.sin(angle));
-        // this.knockbackVelocity = direction.scale(50);
-        // const velocity = direction.scale(600);
-        // this.TakeDamage(velocity.x, velocity.y, 5, 300);
-
         const x = this.body.blocked.left ? 1 : this.body.blocked.right ? -1 : 0;
         const y = this.body.blocked.down ? -1 : this.body.blocked.up ? 1 : 0;
         this.TakeDamage(x * 600, y * 600, 5, 300);
@@ -782,10 +733,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         }
         GameManager.save();
         return equippedWeapon;
-    }
-
-    getCurrentPos() {
-        return new Phaser.Math.Vector2(this.x, this.y);
     }
 
     makeChatBubble(message) {

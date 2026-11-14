@@ -154,6 +154,16 @@
       z-index: 10;
     }
 
+    /* Keyboard focus gets the same gold treatment as hover (no scale —
+       tabbing shouldn't shift the layout), so the focused card is visible. */
+    .card:focus-visible {
+      border: 2px ridge gold;
+      border-radius: 4px;
+      box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+      outline: 2px solid gold;
+      outline-offset: 2px;
+    }
+
     .card {
       touch-action: manipulation; /* no tap delay / double-tap zoom on cards */
       -webkit-user-select: none;
@@ -274,8 +284,8 @@
   </section>
 
   <section id="chat-section">
-    <input type="text" id="chatInput" placeholder="Chat..." maxlength="200" autocomplete="off">
-    <div id="chatMessages">
+    <input type="text" id="chatInput" placeholder="Chat..." maxlength="200" autocomplete="off" aria-label="Chat message">
+    <div id="chatMessages" role="log" aria-label="Chat messages">
       <div class="chatMessage"></div>
     </div>
   </section>
@@ -284,7 +294,7 @@
 
   <section id="icon-section">
     <div id="icon-toolbar">
-      <span id="iconToolbar-text">Click to consume Card -- Click and hold to lock card</span>
+      <span id="iconToolbar-text">Click to consume Card -- Click and hold to lock card -- Keyboard: Enter to consume, L to lock</span>
 
       <button id="sortCards-btn">Sort Cards</button>
       <button id="clear-cards-btn">Consume unlocked cards</button>

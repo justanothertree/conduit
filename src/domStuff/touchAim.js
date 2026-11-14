@@ -49,16 +49,27 @@ export function computeTouchAim(player, range = TOUCH_AIM_RANGE) {
 // Returns a cached fake pointer for the player. positionToCamera()
 // recomputes the aim live on every call (weapons call it per frame
 // while firing), so a moving target stays targeted while held.
+//
+// It reuses one scratch vector instead of allocating a fresh Vector2
+// per call: positionToCamera() runs every frame while a weapon fires
+// (via calculateShot) and every frame while a dark orb flies (via
+// DarkOrbProjectile), so the old `new Vector2` was steady per-frame
+// churn on the touch path — the dark-orb fix from Day 45 only helped
+// desktop, because the fake pointer ignored the output vector it was
+// passed. Mirrors Phaser's real Pointer, which writes into an optional
+// output vector when one is given. Safe: calculateShot clones the
+// result immediately, and DarkOrbProjectile reads it in the same frame.
 export function getTouchAimPointer(player) {
     if (!player.touchAimPointer) {
+        const aimVec = new Phaser.Math.Vector2();
         player.touchAimPointer = {
             x: 0,
             y: 0,
-            positionToCamera() {
+            positionToCamera(camera, out) {
                 const aim = computeTouchAim(player);
                 this.x = aim.x;
                 this.y = aim.y;
-                return new Phaser.Math.Vector2(aim.x, aim.y);
+                return (out || aimVec).set(aim.x, aim.y);
             },
         };
     }

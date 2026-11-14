@@ -84,22 +84,24 @@ export default class ShurikanProjectile extends WeaponProjectile {
     chainAttack(enemy) {
         const groups = this.scene.attackableGroups;
         const range = 400;
-        const thisPos = new Phaser.Math.Vector2(this.x, this.y)
         const validTargets = [];
 
         groups.forEach(({ zap, group, handler }) => {
             if (!zap) return;
 
             group.getChildren().forEach(target => {
-                const targetPos = new Phaser.Math.Vector2(target.x, target.y);
-                const distance = Phaser.Math.Distance.BetweenPoints(thisPos, targetPos);
+                if (target === enemy || target.dead) return;
+                // Plain scalar distance — the old code built a Vector2 per
+                // target in range just to measure and aim at it.
+                const dx = target.x - this.x;
+                const dy = target.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
 
-                if ((target !== enemy && distance <= range) && !target.dead) {
+                if (distance <= range) {
                     validTargets.push({
                         target,
                         distance,
                         handler,
-                        pos: targetPos
                     });
                 }
             });
@@ -110,14 +112,19 @@ export default class ShurikanProjectile extends WeaponProjectile {
 
         // Hit up to this.maxTargets
         for (let i = 0; i < Math.min(validTargets.length, this.maxTargets); i++) {
-            const { target, handler, pos } = validTargets[i];
+            const { target } = validTargets[i];
             this.chainCount--;
-            const chainShurikan = new ShurikanProjectile(this.scene, thisPos.x, thisPos.y, this.player, this.weapon, this.chainCount, 1, 1, false)
+            const chainShurikan = new ShurikanProjectile(this.scene, this.x, this.y, this.player, this.weapon, this.chainCount, 1, 1, false)
             chainShurikan.hitTargets.push(enemy);
             this.scene.weaponGroup.add(chainShurikan);
-            const direction = pos.subtract(thisPos).normalize().scale(1000);
+            // Same normalize-then-scale(1000) as before, in plain math:
+            // Vector2.normalize leaves a zero vector as (0, 0), matched
+            // here by the `|| 1` guard.
+            const dx = target.x - this.x;
+            const dy = target.y - this.y;
+            const len = Math.sqrt(dx * dx + dy * dy) || 1;
             chainShurikan.allowGravity = false;
-            chainShurikan.setVelocity(direction.x, direction.y)
+            chainShurikan.setVelocity(dx / len * 1000, dy / len * 1000)
             chainShurikan.setScale(.11)
 
         }

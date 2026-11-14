@@ -101,7 +101,6 @@ export default class AuraZap extends WeaponBase {
         if (!this.player.alive) return;
         const groups = this.scene.attackableGroups;
         const range = this.attackRange;
-        const playerPos = this.player.getCurrentPos();
         const validTargets = [];
 
         this.hitTargets = [];
@@ -110,15 +109,19 @@ export default class AuraZap extends WeaponBase {
             if (!zap) return;
 
             group.getChildren().forEach(target => {
-                const targetPos = new Phaser.Math.Vector2(target.x, target.y);
-                const distance = Phaser.Math.Distance.BetweenPoints(playerPos, targetPos);
+                if (target.dead) return;
+                // Plain scalar distance — the old code built a Vector2 per
+                // target in range (plus one for the player via
+                // getCurrentPos) and stored a `pos` vector nobody read.
+                const dx = target.x - this.player.x;
+                const dy = target.y - this.player.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
 
-                if (distance <= range && !target.dead) {
+                if (distance <= range) {
                     validTargets.push({
                         target,
                         distance,
                         handler,
-                        pos: targetPos
                     });
                 }
             });
@@ -129,7 +132,7 @@ export default class AuraZap extends WeaponBase {
 
         // Hit up to this.maxTargets
         for (let i = 0; i < Math.min(validTargets.length, this.maxTargets); i++) {
-            const { target, handler, pos } = validTargets[i];
+            const { target, handler } = validTargets[i];
             this[handler]?.(target);
             this.zapVisual(target.x, target.y, target);
             if (this.spawnOrb) {

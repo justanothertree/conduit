@@ -288,6 +288,11 @@ export default class PlayerUI extends Phaser.Scene {
         const { width, height } = gamesize;
         // Rotation can move the notch to a different edge — recompute.
         resetSafeAreaCache();
+        // The cooldown overlay is drawn in absolute icon coordinates, so
+        // a resize moves the icons out from under the cached fill —
+        // force both slots to redraw on the next frame.
+        this._cdLeft = undefined;
+        this._cdRight = undefined;
         if (this.scoreText) this.scoreText.x = this.hudLeft() + 10;
         if (this.shardText) this.shardText.x = this.hudLeft() + 12;
         if (this.healthBg) this.healthBg.x = this.hudLeft();
@@ -336,8 +341,23 @@ export default class PlayerUI extends Phaser.Scene {
         // Slot 2 can be empty; this runs every frame, so guard before touching.
         const weapon = left ? this.player.leftWeapon : this.player.rightWeapon;
         if (!weaponIcon || !weapon) return;
-        const cdProgress = weapon.cdProgress;
-        if (cdProgress > .95) {
+        // cdProgress is undefined until the first shot — treat as 0 (ready,
+        // empty overlay), same as the comparisons below used to.
+        const cdProgress = weapon.cdProgress ?? 0;
+        const ready = cdProgress > .95;
+        // This runs every frame but the overlay only moves while cooling
+        // down, so redraw only when something visible changed: a different
+        // weapon (a swap also changes the icon the fill is measured
+        // against), the ready/clear state flipping, or the fill moving by
+        // more than ~0.1px. The steady states (ready / never fired) draw
+        // once and then stop marking the Graphics dirty every frame.
+        const cache = left ? (this._cdLeft ??= {}) : (this._cdRight ??= {});
+        if (cache.weapon === weapon && cache.ready === ready
+            && Math.abs(cdProgress - cache.progress) < 0.002) return;
+        cache.weapon = weapon;
+        cache.ready = ready;
+        cache.progress = cdProgress;
+        if (ready) {
             weaponBox.clear();
             return;
         }

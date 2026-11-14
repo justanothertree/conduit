@@ -129,6 +129,16 @@
     border: 1px solid #4a6a8a;
 }
 
+/* Keyboard focus: same gold border/glow as the card grid's :focus-visible
+   (no scale, so tabbing doesn't shift layout). */
+#inventory-panel .inv-talent:focus-visible {
+    border: 2px ridge gold;
+    border-radius: 4px;
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+    outline: 2px solid gold;
+    outline-offset: 2px;
+}
+
 #inventory-panel .inv-talent-name {
     font-size: 16px;
     font-weight: bold;

@@ -344,37 +344,19 @@ export default class BaseGame extends Phaser.Scene {
 
   }
 
-  clearCollisions() {
-    if (this.weaponOverlap) {
-      this.weaponOverlap.destroy();
-    }
-    if (this.enemyOverlap) {
-      this.enemyOverlap.destroy();
-    }
-    if (this.walkCollider) {
-      this.walkCollider.destroy();
-    }
-    if (this.tileCollider1) {
-      this.tileCollider1.destroy();
-    }
-    if (this.tileCollider2) {
-      this.tileCollider2.destroy();
-    }
-    if (this.weaponWalkableCollider) {
-      this.weaponWalkableCollider.destroy();
-    }
-  }
-
   setupMusic(key) {
-    const shutdownHandler = () => {
-    }
-
     SoundUtil.setup(this, key, GameManager.volume.music ?? 1);
 
     this.sound.pauseOnBlur = false;
     this.sfx = {};
 
-    this.events.on('shutdown', () => {
+    // setupMusic runs on every level load, but Phaser's Systems.shutdown()
+    // only emits 'shutdown' — it never removes listeners (only destroy()
+    // does), so a plain .on() would stack one sfx-cleanup handler per
+    // visited level on the same scene instance. .once() self-removes after
+    // firing, same replace-not-stack convention as the other per-level
+    // listeners (Days 14/19/20).
+    this.events.once('shutdown', () => {
       for (const key in this.sfx) {
         this.sfx[key].forEach(sound => {
           sound.stop();
