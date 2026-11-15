@@ -148,42 +148,112 @@ new build. No new dependencies, no new environment variables, no changes to
 ## How it works (one paragraph)
 
 Every client still spawns the same enemies from the same tilemap, but only
-one of them — the **host**, the lowest socket id among players in that level —
-actually runs their AI. The host broadcasts enemy positions + HP ~12 times a
-second; everyone else's enemies are puppets that interpolate toward the
-host's positions, run no AI, and never take local damage. A weapon hit on a
-puppet is routed to the host, which applies it and broadcasts the new HP.
-Enemy fireballs are emitted by the host and re-spawned locally on non-hosts,
-so they stay dangerous for everyone. When the host leaves or changes level,
-the next-lowest player in that level takes over automatically and their
-puppets wake up where they are. Rewards stay per player: when the host says
-an enemy died, every client runs its own local death path (money, loot).
+one of them — the **host**, the **longest-present player in that level**
+(earliest scene-entry time, socket id breaking ties) — actually runs their
+AI. The host broadcasts enemy positions + HP ~12 times a second; everyone
+else's enemies are puppets that interpolate toward the host's positions,
+run no AI, and never take local damage. A weapon hit on a puppet is routed
+to the host, which applies it and broadcasts the new HP. Enemy fireballs
+are emitted by the host and re-spawned locally on non-hosts, so they stay
+dangerous for everyone. When the host leaves or changes level, the
+longest-present remaining player in that level takes over automatically
+and their puppets wake up where they are. Rewards stay per player: when
+the host says an enemy died, every client runs its own local death path
+(money, loot) — **except** a death the client never saw live: if the
+local enemy is already dead or missing, the host's re-sent dead entry is
+removed quietly with no payout, no re-kill, and no respawn timer (a fresh
+joiner is never paid for kills that happened before they arrived, and a
+dead boss can no longer pay out once a second).
+
+**Puppet mode needs proof.** A client only turns its enemies into puppets
+once a real host state packet arrives. If no host state arrives within
+~2s of becoming a non-host, it stays on its own local simulation —
+enemies keep moving and stay killable. This matters right now: until this
+server file is deployed, no host state packets arrive at all, so without
+this rule co-op would be worse than before (frozen, unkillable enemies).
 
 ## What changed in `server/server.js`
 
-Three new handlers, right after the existing `attackRequest` handler, in the
-exact same style (`players[socket.id]` guard, `XRequest` in → `XUpdate`
-broadcast out, only known fields forwarded). Deep validation lives on the
-receiving client; the server checks the outer shape only.
+### Host election + rooms (new)
+
+The server now stamps every player's scene-entry time and puts each level
+in its own socket.io room. No client change was needed for the stamp: the
+server already stores each player's sync `data` opaquely, so it writes
+`enteredAt` into that stored object and the stamp rides the existing
+broadcasts (`existingPlayers` / `playerJoined` / `playerSyncUpdate`). The
+stamp comes from the server's clock — client clocks are never compared,
+so every client elects the same host.
+
+```js
+// Longest-present player in a level is its host: earliest
+// server-stamped scene-entry time among players whose stored
+// data.scene matches, socket id breaking ties.
+function getLevelHostId(sceneKey) { /* ... */ }
+
+const levelRoom = (sceneKey) => `level:${sceneKey}`;
+```
+
+In `playerSyncRequest` (the only handler that changed outside the Part 2
+events):
+
+- A new `sceneEnteredAt` is stamped only when the player's scene actually
+  changed (or on first sync). Re-syncing in the same scene keeps the old
+  stamp, so a brief reconnect does not lose host seniority; a disconnect
+  deletes the record, so a player who leaves and comes back is stamped
+  fresh (newest).
+- The socket joins the room for its current scene (`level:<sceneKey>`)
+  and leaves the old one, so level-scoped events only reach players in
+  the same level.
+- The sender is acked with its own stamp — `socket.emit('playerSyncAck',
+  { enteredAt })` — because a client never sees its own data in a
+  broadcast and otherwise could not compare its entry time against the
+  others'.
+
+### Rate caps + host checks on the Part 2 events
+
+Per-socket rate limits (burst budget per 1s window, over the cap the
+packet is dropped silently — never an error, never a disconnect):
+
+```js
+const RATE_LIMITS = {
+  enemyStateRequest: 30,  // host broadcasts ~12/s
+  enemyHitRequest: 40,
+  enemyShotRequest: 30,
+};
+function checkRate(socket, event) { /* sliding 1s window per socket */ }
+```
+
+The three handlers, in the same `XRequest` in → `XUpdate` out style, now
+enforce all of this server-side (deep validation still lives on the
+receiving client):
 
 ```js
 // Batched host broadcast, ~12Hz (delta-compressed by the host, full
 // snapshot ~1s). Entries are capped at 48 per packet.
 socket.on('enemyStateRequest', (payload) => {
   if (!players[socket.id]) return;
+  if (!checkRate(socket, 'enemyStateRequest')) return;
   if (!payload || typeof payload !== 'object') return;
-  if (typeof payload.sceneKey !== 'string') return;
+  if (typeof payload.sceneKey !== 'string' || !payload.sceneKey || payload.sceneKey.length > 64) return;
+  if (players[socket.id].data?.scene !== payload.sceneKey) return;
+  if (getLevelHostId(payload.sceneKey) !== socket.id) return; // host only
   if (!Array.isArray(payload.enemies) || payload.enemies.length > 48) return;
   const enemies = [];
   for (const entry of payload.enemies) {
     if (!entry || typeof entry !== 'object') continue;
+    if (typeof entry.netId !== 'string' || !entry.netId || entry.netId.length > 64) continue;
+    if (typeof entry.type !== 'string' || !entry.type || entry.type.length > 32) continue;
+    if (!Number.isFinite(entry.x) || !Number.isFinite(entry.y)
+      || !Number.isFinite(entry.vx) || !Number.isFinite(entry.vy)
+      || !Number.isFinite(entry.hp)) continue;
+    if (typeof entry.alive !== 'boolean') continue;
     const validated = {};
     for (const field of ['netId', 'type', 'x', 'y', 'vx', 'vy', 'hp', 'alive']) {
       if (field in entry) validated[field] = entry[field];
     }
     enemies.push(validated);
   }
-  socket.broadcast.emit('enemyStateUpdate', {
+  socket.to(levelRoom(payload.sceneKey)).emit('enemyStateUpdate', {
     id: socket.id, sceneKey: payload.sceneKey,
     full: payload.full === true, enemies,
   });
@@ -192,9 +262,19 @@ socket.on('enemyStateRequest', (payload) => {
 // A non-host routes a weapon hit on a puppet to the host.
 socket.on('enemyHitRequest', (payload) => {
   if (!players[socket.id]) return;
+  if (!checkRate(socket, 'enemyHitRequest')) return;
   if (!payload || typeof payload !== 'object') return;
-  if (typeof payload.netId !== 'string') return;
-  socket.broadcast.emit('enemyHitUpdate', {
+  if (typeof payload.netId !== 'string' || !payload.netId || payload.netId.length > 64) return;
+  if (!Number.isFinite(payload.damage) || payload.damage <= 0) return;
+  if (!Number.isFinite(payload.kx) || !Number.isFinite(payload.ky)) return;
+  if (payload.stun !== undefined && !Number.isFinite(payload.stun)) return;
+  const sceneKey = players[socket.id].data?.scene;
+  if (typeof sceneKey !== 'string' || !sceneKey) return;
+  const hostId = getLevelHostId(sceneKey);
+  if (!hostId || hostId === socket.id) return;
+  const hostSocket = io.sockets.sockets.get(hostId);
+  if (!hostSocket) return;
+  hostSocket.emit('enemyHitUpdate', {  // direct to the host, never broadcast
     id: socket.id, netId: payload.netId, damage: payload.damage,
     kx: payload.kx, ky: payload.ky, stun: payload.stun,
   });
@@ -203,41 +283,79 @@ socket.on('enemyHitRequest', (payload) => {
 // A host emits each enemy projectile; non-hosts spawn the same fireball.
 socket.on('enemyShotRequest', (payload) => {
   if (!players[socket.id]) return;
+  if (!checkRate(socket, 'enemyShotRequest')) return;
   if (!payload || typeof payload !== 'object') return;
   if (payload.kind !== 'fireball') return;
-  socket.broadcast.emit('enemyShotUpdate', {
+  const sceneKey = players[socket.id].data?.scene;
+  if (typeof sceneKey !== 'string' || !sceneKey) return;
+  if (getLevelHostId(sceneKey) !== socket.id) return; // host only
+  const s = payload.start, v = payload.velocity;
+  if (!s || !v || typeof s !== 'object' || typeof v !== 'object') return;
+  if (!Number.isFinite(s.x) || !Number.isFinite(s.y)
+    || !Number.isFinite(v.x) || !Number.isFinite(v.y)) return;
+  if (Math.abs(s.x) > 100000 || Math.abs(s.y) > 100000
+    || Math.abs(v.x) > 2000 || Math.abs(v.y) > 2000) return;
+  socket.to(levelRoom(sceneKey)).emit('enemyShotUpdate', {
     id: socket.id, kind: payload.kind,
-    start: payload.start, velocity: payload.velocity,
+    sceneKey,  // stamped by the server from the sender's stored scene
+    start: { x: s.x, y: s.y }, velocity: { x: v.x, y: v.y },
   });
 });
 ```
 
-- `enemyStateRequest` → `enemyStateUpdate` `{ id, sceneKey, full, enemies }`.
-  The client validates every entry (scene match, allowlisted type, finite
-  numbers, capped array) before touching anything.
-- `enemyHitRequest` → `enemyHitUpdate` `{ id, netId, damage, kx, ky, stun }`.
-  Only the elected host applies the hit, and only for an enemy that exists
-  in its own scene (damage capped at 50 per hit client-side too).
-- `enemyShotRequest` → `enemyShotUpdate` `{ id, kind, start, velocity }`.
-  Kind is allowlisted to `'fireball'` — the only enemy projectile today.
-- No server change was needed for host election: the client's sync data now
-  carries a `scene` field (the current level key), and the server already
-  stores `data` opaquely and re-broadcasts it as-is. The host is the lowest
-  socket id among players in the same level, computed on each client.
+- `enemyStateRequest` → `enemyStateUpdate` `{ id, sceneKey, full, enemies }`,
+  to the level room only. The client validates every entry (scene match,
+  allowlisted type, finite numbers, capped array) before touching anything.
+  **Only the level host's broadcasts are forwarded** — a non-host (or a
+  client spoofing another level's `sceneKey`) can no longer inject enemy
+  state.
+- `enemyHitRequest` → `enemyHitUpdate` `{ id, netId, damage, kx, ky, stun }`,
+  **routed directly to the level host** instead of broadcast. Only the
+  elected host applies the hit, and only for an enemy that exists in its
+  own scene (damage capped at 50 per hit client-side too).
+- `enemyShotRequest` → `enemyShotUpdate` `{ id, kind, sceneKey, start,
+  velocity }`, to the level room only. Kind is allowlisted to `'fireball'`
+  — the only enemy projectile today — and `sceneKey` is stamped by the
+  server from the sender's stored scene, never trusted from the payload.
+  The receiver drops any shot whose sender is not its level's current
+  host or whose `sceneKey` is not its own level.
+- No server change was needed for host election beyond the stamp: the
+  client's sync data already carries a `scene` field (the current level
+  key), and the server already stores `data` opaquely and re-broadcasts
+  it as-is. The host is the longest-present player in the same level,
+  computed on each client from the same server-stamped times — and
+  enforced on the server by the same rule.
 
 ## What changed on the client (for context — no action needed)
 
 - `GameManager.getNetworkData(sceneKey)` and `playerSyncNetwork` now include
   `scene` (the current level key); level entry re-syncs with the new scene.
-- `NetworkManager`: `isHost()` / `recomputeHost()` (re-run on
+- `NetworkManager`: `isHost()` / `getHostId()` / `recomputeHost()` (re-run on
   `existingPlayers` / `playerJoined` / `playerLeft` / `playerSyncUpdate` /
-  scene change); host broadcast tick (~12Hz, delta-compressed, full snapshot
-  ~1s, 48 entries/tick, bosses + deaths first); `enemyStateUpdate` /
-  `enemyHitUpdate` / `enemyShotUpdate` handlers with full validation;
-  `onHostChanged` wakes/sleeps enemies on handoff and re-arms dead bosses'
-  rematch triggers when a new host takes over. The old symmetric scaffolding
-  (`replicateEnemy`, `enemyDamageUpdate`, direct `setPosition` sync) is
-  deleted — this is the only enemy-sync path now.
+  scene change, and on the server's `playerSyncAck`); host broadcast tick
+  (~12Hz, delta-compressed, full snapshot ~1s, 48 entries/tick, bosses +
+  deaths first); `enemyStateUpdate` / `enemyHitUpdate` / `enemyShotUpdate`
+  handlers with full validation; `onHostChanged` wakes/sleeps enemies on
+  handoff and re-arms dead bosses' rematch triggers when a new host takes
+  over. The old symmetric scaffolding (`replicateEnemy`,
+  `enemyDamageUpdate`, direct `setPosition` sync) is deleted — this is the
+  only enemy-sync path now.
+- **Host is longest-present, not lowest socket id.** `getHostId()` elects
+  the earliest server-stamped `enteredAt` among players in the level
+  (socket id breaks ties); a fresh joiner can no longer steal host and
+  respawn dead bosses at full HP. The stamp is written by the server into
+  the sync data, so no client sync-data change was needed.
+- **Dead entries are removed quietly.** A host dead entry with no live
+  local enemy is skipped — no re-spawn, no `die()`, no payout, no respawn
+  timer. This kills the money farm where the ~1s full snapshots re-paid
+  every already-dead enemy once a second.
+- **Puppet mode needs a real host packet.** Losing host no longer puppets
+  enemies immediately; the switch runs on the first valid host state
+  packet, and if none arrives within ~2s the client stays on its local
+  simulation (enemies live and killable). Gaining host is unchanged.
+- **Shots are host- and level-checked.** `applyEnemyShot` drops anything
+  whose sender is not the level's current host or whose `sceneKey` (stamped
+  by the server) is not the client's own level.
 - `SpawnManager`: every spawned enemy gets a stable `netId`
   (`type:spawnX:spawnY`) and joins a scene-level `netId → enemy` registry;
   `spawnRemote` spawns puppets for host entries; duck respawns are
@@ -286,7 +404,29 @@ Socket.IO CORS origins if it is missing.
    enemies, no enemy stuck mid-air.
 7. Duck respawn: kill a duck, then walk >1200px away and wait ~5s — it
    should come back on both screens at the same spot.
-8. If enemies disagree between screens (one client has an enemy the other
+8. **No more money farm (item 1):** kill the Flowline boss, then leave the
+   second client watching for 10s — its money must not climb, the boss
+   must not flash REMATCH every second, and no duck respawn timers should
+   pile up. Then have a third client (or the same second client, re-entering
+   the level) join AFTER the boss is dead: it must NOT get the boss bounty
+   for a kill it never saw.
+9. **Joiner does not steal host (item 2):** with two players in Flowline,
+   have the host kill the boss, then have a third player join — the boss
+   must stay dead (no full-HP respawn), and the fight must continue on the
+   original host. The new joiner is host for nothing.
+10. **No puppet freeze on the old server (item 3):** before deploying this
+    server file, two players in the same level should still be able to
+    fight normally — enemies keep moving and stay killable on both screens
+    (each client on its own local simulation). If enemies freeze the moment
+    the second player joins, the new Pages build is not live (hard refresh).
+    After deploying, the same test should show shared enemies instead.
+11. **Shots stay in-level (item 5):** with one player in Flowline and one
+    in World 1, the World 1 player must never see Flowline fireballs (and
+    vice versa). Enemy fireballs only appear on both screens once this
+    server file is deployed — the client now requires the server-stamped
+    `sceneKey`, so shots are the one thing that fully depends on the new
+    deploy.
+12. If enemies disagree between screens (one client has an enemy the other
    doesn't, or positions diverge and never re-converge): check the server
    is the new deploy, check both clients are on the new Pages build (hard
    refresh), and check the browser console for `[host]` lines (host

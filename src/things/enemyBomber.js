@@ -8,13 +8,15 @@ import Bullet from "./bullet.js";
 // keep moving sideways. It never touches the ground, so melee has to
 // reach up (or the shurikan does the work).
 //
-// Visibility: bombers hover high enough to sit above a phone screen's
-// top edge and go unnoticed until a bomb lands. A ground shadow marker
-// (dark ellipse with an orange ring) sits on the floor directly below
-// each bomber while the player is in its drop range, so the threat
-// reads on the ground the player is actually looking at — the bomber
-// itself can stay high. The marker is purely visual: it never damages,
-// blocks, or changes the drop telegraph.
+// Visibility: bombers used to hover at their spawn height, high
+// enough to sit above a phone screen's top edge and go unnoticed
+// until a bomb landed — so the hover now sits 128px below the spawn
+// point (see hoverDrop), low enough to read on a phone screen. A
+// ground shadow marker (dark ellipse with an orange ring) still sits
+// on the floor directly below each bomber while the player is in its
+// drop range, so the threat reads on the ground the player is
+// actually looking at too. The marker is purely visual: it never
+// damages, blocks, or changes the drop telegraph.
 //
 // Reuses existing mechanics only: bat flight (allowGravity false, same
 // 'bat' art, orange tint so it reads as "explosive"), the turret's
@@ -36,6 +38,13 @@ export default class Bomber extends BaseEnemy {
         this.nextDrop = 0;
         this.windingUp = false;
         this.baseY = y;           // hover anchor — set properly in activate()
+        // Hover sits this far BELOW the spawn point: at spawn height the
+        // bomber floated above a phone screen's top edge and went
+        // unnoticed until a bomb landed. 128px (4 tiles) keeps it in
+        // frame over the fight while the bombs still fall far enough
+        // to dodge. Applied in activate()/init(), which both run on
+        // every (re)spawn.
+        this.hoverDrop = 128;
         this.groundTop = null;    // floor below the bomber — scanned in activate()
         this.marker = null;       // ground shadow marker (created in activate)
         this.setTint(0xff8800);   // orange — reads as "explosive" next to bats
@@ -47,7 +56,7 @@ export default class Bomber extends BaseEnemy {
     init() {
         // Hover anchor refreshes on every (re)spawn; the drift/bob math
         // in preUpdate steers around it.
-        this.baseY = this.y;
+        this.baseY = this.y + this.hoverDrop;
     }
 
     activate(x, y, health = 15) {
@@ -56,36 +65,57 @@ export default class Bomber extends BaseEnemy {
         this.scaleCollision(40, 40); // body exists now (in the physics world)
         this.body.allowGravity = false;
         this.setVelocity(0, 0);
-        this.baseY = y;
+        this.baseY = y + this.hoverDrop;
         this.nextDrop = this.scene.time.now + 1500; // a beat before it starts
         this.windingUp = false;
-        // Ground shadow: scan the walls layer below the spawn point for
-        // the floor (same pattern as the mini-boss's groundTop scan) and
-        // put a dark ellipse with an orange ring on it, tracking the
-        // bomber's x. No floor within 900px (over a pit) means no marker
-        // rather than a marker floating in the void.
+        this.createMarker();
+        return true;
+    }
+
+    // Ground shadow: scan the walls layer below the current position
+    // for the floor (same pattern as the mini-boss's groundTop scan)
+    // and put a dark ellipse with an orange ring on it, tracking the
+    // bomber's x. No floor within 900px (over a pit) means no marker
+    // rather than a marker floating in the void. Split out of
+    // activate() so the puppet lifecycle can rebuild it on wake
+    // (see setRemote).
+    createMarker() {
+        if (this.marker) return;
         this.groundTop = null;
         const walls = this.scene.walls;
         if (walls) {
-            for (let py = y; py < y + 900; py += 8) {
-                const tile = walls.getTileAtWorldXY(x, py);
+            for (let py = this.y; py < this.y + 900; py += 8) {
+                const tile = walls.getTileAtWorldXY(this.x, py);
                 if (tile && tile.index !== -1) { this.groundTop = tile.pixelY; break; }
             }
         }
-        if (!this.marker && this.groundTop !== null) {
-            this.marker = this.scene.add.ellipse(x, this.groundTop - 2, 44, 12, 0x000000, 0.35)
+        if (this.groundTop !== null) {
+            this.marker = this.scene.add.ellipse(this.x, this.groundTop - 2, 44, 12, 0x000000, 0.35)
                 .setStrokeStyle(2, 0xff8800, 0.8)
                 .setDepth(1)
                 .setVisible(false);
         }
-        return true;
+    }
+
+    destroyMarker() {
+        if (this.marker) { this.marker.destroy(); this.marker = null; }
+    }
+
+    // Puppet lifecycle: a puppet's preUpdate never touches the marker,
+    // so a visible one would freeze on screen — destroy it when the
+    // bomber becomes a puppet, and rebuild it when it wakes back into
+    // AI. (deactivate() destroys it too.)
+    setRemote(remote) {
+        if (remote) this.destroyMarker();
+        super.setRemote(remote);
+        if (!remote) this.createMarker();
     }
 
     deactivate() {
         // The marker is a plain scene object, not a pooled child — destroy
         // it here so a deactivated bomber leaves no stale shadow behind.
         // activate() recreates it on the next spawn.
-        if (this.marker) { this.marker.destroy(); this.marker = null; }
+        this.destroyMarker();
         super.deactivate();
     }
 
@@ -127,12 +157,14 @@ export default class Bomber extends BaseEnemy {
         }
     }
 
-    // Gentle hover: drift toward the player's x at 60px/s, and hold
-    // altitude around the spawn height with a sine bob. The spring term
-    // keeps the bob from wandering off over a long fight.
+    // Gentle hover: drift toward the nearest live player's x at
+    // 60px/s, and hold altitude around the spawn height (minus the
+    // hover drop) with a sine bob. The spring term keeps the bob
+    // from wandering off over a long fight.
     hover(time) {
-        if (this.player) {
-            const dx = this.player.x - this.x;
+        const target = this.nearestPlayer();
+        if (target) {
+            const dx = target.x - this.x;
             if (Math.abs(dx) > 30) {
                 this.setVelocityX(Math.sign(dx) * this.driftSpeed);
             } else {
@@ -142,7 +174,7 @@ export default class Bomber extends BaseEnemy {
         const bob = Math.sin(time / 700) * 30;
         const spring = (this.baseY - this.y) * 2;
         this.setVelocityY(Phaser.Math.Clamp(spring + bob, -120, 120));
-        this.flipX = this.player ? this.player.x < this.x : false;
+        this.flipX = target ? target.x < this.x : false;
     }
 
     // One bomb straight down — same projectile setup as the turret's aimed

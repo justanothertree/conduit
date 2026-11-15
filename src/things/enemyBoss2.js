@@ -80,9 +80,25 @@ export default class Boss2 extends BaseEnemy {
         if (this.dead) return;
         if (this.isRemote) {
             // Puppet: phase tint + boss bar track the host's HP; the
-            // slam landing, patrol, volleys and intro never run.
+            // slam landing, patrol and volleys never run. The
+            // name card + arena lock DO show: when the local player
+            // first steps into the arena where the host's Warden is
+            // fighting, they get the intro the host's player got —
+            // triggered by first sight of the puppet boss, never by
+            // the local spawn. Display-only on this client: the lock
+            // is a local mirror of the host's lock (it seals only
+            // this player's exits), and die()/deactivate() always
+            // remove it, so it can never outlive the fight.
             this.syncRemotePhase();
             this.updateBossBarVisibility();
+            this.tryBossIntro('THE IRON WARDEN', 'WARDEN OF WORLD 1',
+                this.player && this.arenaLeft && this.arenaRight
+                    && this.player.x > this.arenaLeft + 96
+                    && this.player.x < this.arenaRight,
+                [
+                    { x: this.arenaLeft - 64, y: this.groundTop - 740, w: 64, h: 740 },
+                    { x: this.arenaRight, y: 1100, w: 64, h: this.groundTop - 256 - 1100 },
+                ]);
             return;
         }
         const onGround = this.body?.blocked.down || this.body?.touching.down;
@@ -119,8 +135,9 @@ export default class Boss2 extends BaseEnemy {
     }
 
     facePlayer() {
-        if (!this.player) return;
-        const dx = this.player.x - this.x;
+        const target = this.nearestPlayer();
+        if (!target) return;
+        const dx = target.x - this.x;
         if (Math.abs(dx) > 40) this.direction = Math.sign(dx);
         this.flipX = this.direction > 0;
     }
@@ -295,10 +312,15 @@ export default class Boss2 extends BaseEnemy {
 
     tickAttacks() {
         if (this.dead || this.stunned || this.overloading || !this.player) return;
-        // The fight starts with the intro: no volleys while the player is
-        // still outside the arena (the boss used to fire sweep rows into
-        // an empty room at the player in the antechamber).
-        if (!this.introShown) return;
+        // The fight starts when ANY player steps into the arena — the
+        // old `if (!this.introShown) return` gate waited for the
+        // host's player, so a non-host alone in the arena was ignored
+        // entirely (no volleys) while the host stood in the
+        // antechamber. The host's intro card is still tied to the
+        // local player; this gate only decides whether the room is
+        // occupied. (And the empty-room protection stays: nobody in
+        // the arena, no sweep rows fired at the antechamber.)
+        if (!this.anyPlayerIn(this.arenaLeft, this.arenaRight)) return;
         // Use scene.time.now (not the preUpdate `time` param, which is
         // game.loop.time) so the clock matches activate() and doesn't cause
         // instant frame-1 fireballs or unpause bursts.
@@ -378,10 +400,12 @@ export default class Boss2 extends BaseEnemy {
     // Phase 1 alternate: a fast 3-round aimed burst at the player — the
     // sweep rows make the player move, the burst makes them move NOW.
     // Same aimed-shot setup as the burst ring's opening, minus the ring.
+    // Aimed at the nearest live player, not just the host.
     startAimedBurst() {
         const g = this.gen;
+        const target = this.nearestPlayer() ?? this.player;
         const aimed = Phaser.Math.RadToDeg(
-            Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y));
+            Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y));
         for (let i = 0; i < 3; i++) {
             this.scene.time.delayedCall(i * 180, () => {
                 if (g !== this.gen || this.dead || !this.active || !this.player) return;
@@ -395,8 +419,9 @@ export default class Boss2 extends BaseEnemy {
     // that beat (same fair convention as the Flowline boss's ring).
     startBurstRing() {
         const g = this.gen;
+        const target = this.nearestPlayer() ?? this.player;
         const aimed = Phaser.Math.RadToDeg(
-            Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y));
+            Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y));
         for (let i = 0; i < 3; i++) {
             this.scene.time.delayedCall(i * 180, () => {
                 if (g !== this.gen || this.dead || !this.active || !this.player) return;
@@ -405,8 +430,9 @@ export default class Boss2 extends BaseEnemy {
         }
         this.scene.time.delayedCall(700, () => {
             if (g !== this.gen || this.dead || !this.active || !this.player) return;
+            const target = this.nearestPlayer() ?? this.player;
             const gapAt = Phaser.Math.RadToDeg(
-                Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y));
+                Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y));
             for (let i = 0; i < 10; i++) {
                 const a = i * 36;
                 if (Math.abs(Phaser.Math.Angle.WrapDegrees(a - gapAt)) < 40) continue;
@@ -431,10 +457,11 @@ export default class Boss2 extends BaseEnemy {
     // Phase 3 alternate: telegraphed leap at the player; on landing, two
     // ground-hugging shockwaves roll left and right (jump to dodge). The
     // leap itself is the second half of the telegraph — the yellow flash
-    // is the warning.
+    // is the warning. Leaps at the nearest live player.
     startSlam() {
-        if (!this.player || this.dead) return;
-        const dx = this.player.x - this.x;
+        const target = this.nearestPlayer() ?? this.player;
+        if (!target || this.dead) return;
+        const dx = target.x - this.x;
         this.slamArmed = true;
         this.wasAirborne = false;
         this.setVelocity(Math.sign(dx) * 480, -520);
@@ -465,8 +492,9 @@ export default class Boss2 extends BaseEnemy {
             // Don't cut a new volley's wind-up flash short: if one is in
             // progress, its own completion restores the tint.
             if (!this.windingUp) this.restoreTint();
+            const target = this.nearestPlayer() ?? this.player;
             const aimed = Phaser.Math.RadToDeg(
-                Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y));
+                Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y));
             for (let i = 0; i < 3; i++) {
                 this.scene.time.delayedCall(i * 150, () => {
                     if (g !== this.gen || this.dead || !this.active) return;

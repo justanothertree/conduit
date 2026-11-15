@@ -38,6 +38,23 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     this._enemyBroadcastTimer = setInterval(
       () => this.broadcastEnemyState(), ENEMY_BROADCAST_HZ_MS);
 
+    // Item 2 — my own scene-entry stamp, server clock. The server
+    // stamps enteredAt when it first sees me in a scene and acks it
+    // back (playerSyncAck); until the ack arrives it is undefined and
+    // I sort as newest. Reset on every scene change (refreshScene).
+    this._sceneEnteredAt = undefined;
+    // Item 1 — netIds this client has seen a LIVE host entry for, in
+    // this scene. A death whose first contact is the death itself
+    // (I joined after the host killed it) is removed quietly, never
+    // paid. Cleared on scene change (refreshScene).
+    this._netSeenAlive = new Set();
+    // Item 3 — blanket puppet switch is pending until the first real
+    // host state packet proves a host is broadcasting. Starts true:
+    // a client that loads straight into a shared level puppets on
+    // the first packet, never before it.
+    this._puppetSwitchPending = true;
+    this._puppetFallbackTimer = null;
+
     const serverURL =
       location.hostname === 'localhost' || location.hostname === '127.0.0.1'
         ? 'http://localhost:3000'
@@ -132,6 +149,18 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
         player.destroy();
         delete this.otherPlayers[id];
       }
+      this.recomputeHost();
+    });
+
+    // Item 2 — the server stamps my scene-entry time (one clock for
+    // every client) and acks it back: I never see my own data in a
+    // broadcast, so this is how I learn my own stamp for the host
+    // election. A changed stamp re-runs the election.
+    this.socket.on('playerSyncAck', (ack) => {
+      const enteredAt = ack?.enteredAt;
+      if (!Number.isFinite(enteredAt)) return;
+      if (this._sceneEnteredAt === enteredAt) return;
+      this._sceneEnteredAt = enteredAt;
       this.recomputeHost();
     });
 
@@ -285,24 +314,48 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
   }
 
   // ---- Host election (Part 2, deterministic, client-side) ----
-  // The host for a level is the lowest socket id among the players
-  // whose data.scene matches my current scene key. Every client sees
-  // the same ids and the same scene fields, so every client elects the
-  // same host with no server coordination. Alone in a level (or
-  // offline — no socket / not connected) I am the host, so solo play
-  // is exactly the old local simulation. GhostPlayer stores the last
-  // synced data as myData, which is where the scene field lives.
+  // The host for a level is the LONGEST-PRESENT player in it (Item
+  // 2): the earliest scene-entry timestamp among the players whose
+  // data.scene matches my current scene key, socket id breaking ties.
+  // A fresh joiner therefore never steals host and respawns dead
+  // enemies/bosses at full HP; a player who leaves the level (or
+  // disconnects) and comes back gets a fresh stamp and is newest.
+  // enteredAt is stamped by the SERVER (one clock — client clocks
+  // disagree, so comparing client Date.now() values could elect two
+  // hosts) when it first sees a socket in a scene, carried in the
+  // sync data (existingPlayers / playerJoined / playerSyncUpdate)
+  // and acked back to the sender as playerSyncAck. A player with no
+  // stamp yet — not acked, or an old server — sorts as newest, so
+  // the election degrades to the old lowest-socket-id rule until
+  // every client has a stamp. Alone in a level (or offline — no
+  // socket / not connected) I am the host, so solo play is exactly
+  // the old local simulation. GhostPlayer stores the last synced
+  // data as myData, which is where the scene field lives.
+  getHostId() {
+    const socket = this.socket;
+    if (!socket?.id) return null;
+    const sceneKey = this.scene?.scene?.key;
+    if (!sceneKey) return socket.id;
+    let host = socket.id;
+    let hostEnteredAt = this._sceneEnteredAt ?? Infinity;
+    for (const id in this.otherPlayers) {
+      const p = this.otherPlayers[id];
+      if (p?.myData?.scene !== sceneKey) continue;
+      const enteredAt = Number.isFinite(p.myData?.enteredAt)
+        ? p.myData.enteredAt : Infinity;
+      if (enteredAt < hostEnteredAt
+        || (enteredAt === hostEnteredAt && id < host)) {
+        host = id;
+        hostEnteredAt = enteredAt;
+      }
+    }
+    return host;
+  }
+
   isHost() {
     const socket = this.socket;
     if (!socket || !socket.connected || !socket.id) return true;
-    const sceneKey = this.scene?.scene?.key;
-    if (!sceneKey) return true;
-    let host = socket.id;
-    for (const id in this.otherPlayers) {
-      const p = this.otherPlayers[id];
-      if (p?.myData?.scene === sceneKey && id < host) host = id;
-    }
-    return host === socket.id;
+    return this.getHostId() === socket.id;
   }
 
   // Re-run the election after anything that can change it. On a
@@ -337,9 +390,19 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     // New scene, new election — and the enemy broadcast state (delta
     // snapshot) belongs to the old scene, so reset it. The per-level
     // enemy registry lives on the scene's SpawnManager, which is
-    // already the new one by the time this runs.
+    // already the new one by the time this runs. My entry stamp is
+    // unknown until the server acks the level-entry sync (Item 2),
+    // and the puppet switch is pending again until a host state
+    // packet for this scene proves a host is broadcasting (Item 3).
     this._enemyLastSent = null;
     this._enemyTick = 0;
+    this._sceneEnteredAt = undefined;
+    this._netSeenAlive.clear();
+    this._puppetSwitchPending = true;
+    if (this._puppetFallbackTimer) {
+      clearTimeout(this._puppetFallbackTimer);
+      this._puppetFallbackTimer = null;
+    }
     this.recomputeHost();
   }
 
@@ -437,13 +500,19 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
   // packet must never throw or corrupt state). For each entry: find
   // the local enemy by netId, or spawn a remote puppet; convert a
   // local enemy to a puppet on first sight; lerp toward the host
-  // position; apply host HP; a dead entry runs the LOCAL death path
+  // position; apply host HP; a dead entry for a LIVE local enemy
+  // this client has seen alive on the wire runs the LOCAL death path
   // (die() pays the local player and drops local loot — that is how
   // rewards stay per player, each client granting its own from the
   // shared death event; boss rematch re-arm is host-gated inside
-  // die(), so a puppet death never re-spawns locally). A live entry
-  // for a dead local enemy re-activates it as a puppet — that is the
-  // host-driven respawn/rematch path.
+  // die(), so a puppet death never re-spawns locally) — but a dead
+  // entry with no live local enemy, or for an enemy this client
+  // never saw alive (it joined after the kill), is removed quietly
+  // instead of revived-and-killed (Item 1). A live entry for a dead
+  // local enemy re-activates it as a puppet — that is the
+  // host-driven respawn/rematch path. The first valid host packet
+  // also runs the pending blanket puppet switch (Item 3); until one
+  // arrives, local enemies keep simulating.
   applyEnemyState(data) {
     if (!data || typeof data !== 'object') return;
     if (data.id === this.socket?.id) return;
@@ -453,6 +522,21 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     if (this.isHost()) return; // the host never applies — it IS the authority
     const sm = this.scene?.spawnManager;
     if (!sm) return;
+    // Item 3 — this is a real host state packet, so puppet mode is
+    // proven live: run the pending blanket switch (live local
+    // enemies become puppets) exactly once. Until this point the
+    // enemies stayed on the local simulation — on the current server
+    // no host packets arrive at all, so without this gate they would
+    // freeze into unkillable puppets.
+    if (this._puppetSwitchPending) {
+      this._puppetSwitchPending = false;
+      if (this._puppetFallbackTimer) {
+        clearTimeout(this._puppetFallbackTimer);
+        this._puppetFallbackTimer = null;
+      }
+      this._puppetizeEnemies();
+    }
+    this._hostStateSeenAt = Date.now();
     const now = this.scene.time.now;
     const seen = new Set();
     for (const e of data.enemies) {
@@ -465,6 +549,34 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       if (Math.abs(e.x) > 100000 || Math.abs(e.y) > 100000
         || Math.abs(e.vx) > 5000 || Math.abs(e.vy) > 5000) continue;
       if (typeof e.alive !== 'boolean') continue;
+      // A live entry marks this enemy as seen alive on the wire
+      // (Item 1) — a death that arrives for it later is a shared
+      // kill this client was present for, and pays.
+      if (e.alive && e.hp > 0) this._netSeenAlive.add(e.netId);
+      // Item 1 — a death this client never saw live is removed
+      // quietly. The host's ~1s full snapshots re-send every dead
+      // enemy, and the old code re-spawned the local copy as a puppet
+      // and killed it again — paying out, flashing REMATCH and
+      // stacking duck respawn timers once a second, forever. If
+      // there is no LIVE local enemy for a dead entry, there is
+      // nothing to kill: skip it entirely (no spawn, no die(), no
+      // payout, no respawn timer). And if the local enemy IS alive
+      // but this client never saw it alive on the wire — first
+      // contact with it is its death, i.e. I joined after the host
+      // killed it — deactivate it without die(): no payout, no loot,
+      // no respawn timer, and no zombie left fighting locally that
+      // the host doesn't have. A live local enemy this client HAS
+      // seen alive still runs the death path below — that is a
+      // shared kill this client was present for, and its own payout
+      // is per-player by design.
+      if (!e.alive || e.hp <= 0) {
+        const local = sm.netEnemies.get(e.netId);
+        if (!local || local.dead || !local.active) continue;
+        if (!this._netSeenAlive.has(e.netId)) {
+          local.deactivate();
+          continue;
+        }
+      }
       seen.add(e.netId);
       let enemy = sm.netEnemies.get(e.netId);
       if (!enemy || enemy.dead || !enemy.active) {
@@ -520,7 +632,10 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       && (!Number.isFinite(data.stun) || data.stun < 0 || data.stun > 2000)) return;
     const enemy = this.scene?.spawnManager?.netEnemies.get(data.netId);
     if (!enemy || enemy.dead || !enemy.active || enemy.isRemote) return;
-    enemy.TakeDamage(data.kx, data.ky, data.damage, data.stun ?? 300);
+    // allowLifesteal=false: the heal belongs to the hitter only — the
+    // non-host heals locally on the routed-hit branch of TakeDamage,
+    // so the host must not heal from applying someone else's hit.
+    enemy.TakeDamage(data.kx, data.ky, data.damage, data.stun ?? 300, false);
   }
 
   // Host-fired enemy shot (Part 2). Non-hosts spawn a REAL Bullet in
@@ -530,10 +645,19 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
   // applies its own broadcast. Validated like the rest (finite
   // numbers, sane ranges, kind allowlist), and capped at 60 live
   // soft bullets so a lag burst can't pile up shots on a phone.
+  // Item 5: the sender must be my level's CURRENT host and the
+  // payload must name my level — a shot from anyone else, or from
+  // another level, is dropped. The sceneKey is stamped by the
+  // server from the sender's stored scene (server.js
+  // enemyShotRequest), never trusted from the client, so shots stop
+  // arriving until the new server is deployed.
   applyEnemyShot(data) {
     if (!data || typeof data !== 'object') return;
     if (data.id === this.socket?.id) return;
     if (this.isHost()) return;
+    if (data.id !== this.getHostId()) return;
+    if (typeof data.sceneKey !== 'string'
+      || data.sceneKey !== this.scene?.scene?.key) return;
     if (data.kind !== 'fireball') return;
     const sm = this.scene?.spawnManager;
     if (!sm?.softBulletGroup) return;
@@ -561,29 +685,58 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     });
   }
 
-  // Host transition (Part 2 — handoff). Losing host: live enemies
-  // become puppets immediately; the new host's next broadcast takes
-  // over their positions. Gaining host: puppets wake into AI-driven
-  // enemies at their last known position/HP (setRemote(false) resets
-  // the attack timers — patrol timers reset is acceptable), the
-  // delta baseline is cleared so the first tick sends a full
-  // snapshot from the new authority, and dead bosses with their
-  // bounty flag set get their rematch trigger re-armed (their die()
-  // only armed it while a host).
+  // Host transition (Part 2 — handoff). Gaining host: puppets wake
+  // into AI-driven enemies at their last known position/HP
+  // (setRemote(false) resets the attack timers — patrol timers
+  // reset is acceptable), the delta baseline is cleared so the
+  // first tick sends a full snapshot from the new authority, and
+  // dead bosses with their bounty flag set get their rematch
+  // trigger re-armed (their die() only armed it while a host).
+  // Losing host (Item 3): do NOT puppet immediately. On Josh's
+  // current server no host state packets arrive, so an eager switch
+  // freezes every enemy into an unkillable puppet. The switch is
+  // deferred until the first real host state packet (see
+  // applyEnemyState); if none arrives within ~2s, the fallback is
+  // simply to stay on the local simulation — enemies stay live and
+  // killable, which is strictly better than frozen. A late host
+  // packet still triggers the switch then.
   onHostChanged(nowHost) {
     const sm = this.scene?.spawnManager;
     if (!sm?.netEnemies) return;
     if (nowHost) {
       this._enemyLastSent = null;
       this._enemyTick = 0;
+      // A pending puppet switch is moot — I am the authority now.
+      this._puppetSwitchPending = false;
+      if (this._puppetFallbackTimer) {
+        clearTimeout(this._puppetFallbackTimer);
+        this._puppetFallbackTimer = null;
+      }
       for (const enemy of sm.netEnemies.values()) {
         if (enemy.isRemote && enemy.active && !enemy.dead) enemy.setRemote(false);
       }
       this.rearmBossRematches();
     } else {
-      for (const enemy of sm.netEnemies.values()) {
-        if (!enemy.isRemote && enemy.active && !enemy.dead) enemy.setRemote(true);
-      }
+      this._puppetSwitchPending = true;
+      if (this._puppetFallbackTimer) clearTimeout(this._puppetFallbackTimer);
+      this._puppetFallbackTimer = setTimeout(() => {
+        this._puppetFallbackTimer = null;
+        if (this._puppetSwitchPending && !this.isHost()) {
+          console.log('[host] no host state in 2s — staying on local simulation');
+        }
+      }, 2000);
+    }
+  }
+
+  // Blanket puppet switch (Item 3): the loop the old
+  // onHostChanged(false) ran, now gated on proof a host is actually
+  // broadcasting. Run once, on the first valid host state packet
+  // after losing host (or after loading in as a non-host).
+  _puppetizeEnemies() {
+    const sm = this.scene?.spawnManager;
+    if (!sm?.netEnemies) return;
+    for (const enemy of sm.netEnemies.values()) {
+      if (!enemy.isRemote && enemy.active && !enemy.dead) enemy.setRemote(true);
     }
   }
 

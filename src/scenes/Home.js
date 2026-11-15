@@ -130,14 +130,18 @@ export default class Home extends BaseGame {
                 tint: 0x7CFC00,
                 targetScene: 'LevelFlow',
             },
-            // World 1 — combat-forward level. Burnt orange and far from
-            // Flowline's lime portal (northwest corner vs north-center):
-            // the two used to sit 200px apart with the same tint, and a
-            // 115px-wide player body could overlap BOTH 140px portal
-            // boxes at once — see the freeze note on the overlap handler.
+            // World 1 — combat-forward level. Burnt orange, on the west
+            // end of the spawn plaza: the old spot (1500, 1200) floated
+            // in open sky ~2900px above the floor with no platform under
+            // it, unreachable on foot. The plaza top here is y=3200, so
+            // the portal sits 110px above it — the same gap the other
+            // portals sit above their platforms — and walking west from
+            // spawn (3200, 3150) walks straight into it. 1618px from
+            // Flowline's lime portal (2500, 1500), so the two can never
+            // overlap the player at once — see the freeze note below.
             portalWorld1: {
-                x: 1500,
-                y: 1200,
+                x: 2800,
+                y: 3090,
                 tex: 'portal3',
                 tint: 0xFF6600,
                 targetScene: 'World1',
@@ -161,7 +165,7 @@ export default class Home extends BaseGame {
             color: '#7CFC00',
             fontStyle: 'bold',
         }).setOrigin(.5);
-        this.add.text(1500, 1120, 'WORLD 1', {
+        this.add.text(2800, 3010, 'WORLD 1', {
             fontSize: '18px',
             color: '#FF6600',
             fontStyle: 'bold',

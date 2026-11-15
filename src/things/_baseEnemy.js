@@ -80,7 +80,13 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
             this.lerpPosition(delta);
             return;
         }
-        if (this.accelToPlayerSpeed) this.scene.physics.accelerateToObject(this, this.player, this.accelToPlayerSpeed, this.maxaccell, this.maxaccell);
+        if (this.accelToPlayerSpeed) {
+            // Homing targets the nearest live player, not just the
+            // host — a bat over the non-host's head used to fly off
+            // after the host instead (see nearestPlayer).
+            const target = this.nearestPlayer();
+            if (target) this.scene.physics.accelerateToObject(this, target, this.accelToPlayerSpeed, this.maxaccell, this.maxaccell);
+        }
 
 
     }
@@ -116,34 +122,45 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         // here, so a blocked hit never even routes.)
         if (this.isRemote) {
             this.routeHitToHost(x, y, damage, stunDuration);
+            // Lifesteal is local to the hitter: the routed hit heals
+            // the host's enemy, but the HP comes back here, on the
+            // client that landed it — otherwise a non-host with
+            // Lifesteal never heals. Same boss-only + 250ms throttle
+            // as the local path below.
+            this.applyLifesteal(allowLifesteal);
             return true;
         }
         if (!this.createdHealthBar) this.createHealthBar();
 
         const ok = this.applyDamage(x, y, damage, stunDuration);
 
-        // Shard-shop Lifesteal line: landing a direct hit on a boss feeds
-        // a little health back (+1 HP per hit per level). Bosses only
-        // (name 'boss'/'boss2'/'miniboss') — regular enemies don't
-        // trigger it. Capped at one heal per 250ms: without the cap,
-        // Multishot + chain + aura ticks healed ~12 HP per throw and
-        // bosses became unlosable, and every heal also fired an
-        // updateHealth socket message. The throttle lives on the player
-        // (one heal stream per player, not per enemy).
-        if (ok && allowLifesteal) {
-            const lvl = GameManager.upgrades?.shardShop?.lifesteal ?? 0;
-            if (lvl > 0 && (this.name === 'boss' || this.name === 'boss2' || this.name === 'miniboss')) {
-                const player = this.player;
-                const now = this.scene?.time?.now ?? 0;
-                if (player && now - (player._lifestealLastHeal ?? -1e9) >= 250) {
-                    player._lifestealLastHeal = now;
-                    player.adjustHealth?.(lvl);
-                }
-            }
-        }
+        if (ok) this.applyLifesteal(allowLifesteal);
 
         return ok;
 
+    }
+
+    // Shard-shop Lifesteal line: landing a direct hit on a boss feeds
+    // a little health back (+1 HP per hit per level). Bosses only
+    // (name 'boss'/'boss2'/'miniboss') — regular enemies don't
+    // trigger it. Capped at one heal per 250ms: without the cap,
+    // Multishot + chain + aura ticks healed ~12 HP per throw and
+    // bosses became unlosable, and every heal also fired an
+    // updateHealth socket message. The throttle lives on the player
+    // (one heal stream per player, not per enemy). The heal always
+    // lands on THIS client's player — the hitter — whether the hit
+    // was applied locally or routed to the host (see TakeDamage).
+    applyLifesteal(allowLifesteal = true) {
+        if (!allowLifesteal) return;
+        const lvl = GameManager.upgrades?.shardShop?.lifesteal ?? 0;
+        if (lvl <= 0) return;
+        if (this.name !== 'boss' && this.name !== 'boss2' && this.name !== 'miniboss') return;
+        const player = this.player;
+        const now = this.scene?.time?.now ?? 0;
+        if (!player) return;
+        if (now - (player._lifestealLastHeal ?? -1e9) < 250) return;
+        player._lifestealLastHeal = now;
+        player.adjustHealth?.(lvl);
     }
 
     applyDamage(x, y, damage = 1, stunDuration = 300) {
@@ -454,8 +471,10 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
 
     chasePlayer(time) {
         if (this.stunned) return;
-        const dx = this.player.x - this.x;
-        const dy = this.player.y - this.y;
+        const target = this.nearestPlayer();
+        if (!target) return;
+        const dx = target.x - this.x;
+        const dy = target.y - this.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
 
         if (distance < 450 && Math.abs(dy) < 80 || this.recentlyDamaged) {
@@ -503,14 +522,72 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         this.accelToPlayerSpeed = Phaser.Math.Between(this._accelMin, this._accelMax);
     }
 
+    // Distance to the nearest live player (see nearestPlayer) —
+    // Infinity when nobody is around, so range gates (`< range`,
+    // `> range`) stay false/true respectively instead of comparing
+    // against undefined.
     distanceToPlayer() {
-        const player = this.scene.player ? this.scene.player : null;
-        if (!player) return;
+        const target = this.nearestPlayer();
+        if (!target) return Infinity;
 
-        const dx = player.x - this.x;
-        const dy = player.y - this.y;
+        const dx = target.x - this.x;
+        const dy = target.y - this.y;
 
         return Math.sqrt(dx * dx + dy * dy); // Euclidean distance
+    }
+
+    // Nearest live player in this scene, for host-side AI targeting
+    // (aim, facing, chase, range gates): the local player plus every
+    // same-scene ghost player, by live position. Ghost x/y is the
+    // lerped synced position from NetworkManager.otherPlayers — good
+    // enough to aim at. A dead player is skipped (local `alive`,
+    // ghost `health` 0): without that the AI camps a corpse at the
+    // death spot while the other player is alive and fighting. Solo
+    // play: just the local player. Returns a {x, y} (the Player or a
+    // GhostPlayer) or null. No allocation: the ghost loop is a plain
+    // for-in over a handful of entries.
+    nearestPlayer() {
+        let best = null;
+        let bestD2 = Infinity;
+        const consider = (p, alive) => {
+            if (!p || !alive) return;
+            const dx = p.x - this.x;
+            const dy = p.y - this.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < bestD2) { bestD2 = d2; best = p; }
+        };
+        const local = this.player;
+        consider(local, local && local.alive !== false);
+        const others = this.scene?.network?.otherPlayers;
+        if (others) {
+            const key = this.scene?.scene?.key;
+            for (const id in others) {
+                const g = others[id];
+                if (!g || g.myData?.scene !== key) continue;
+                consider(g, g.health === undefined || g.health > 0);
+            }
+        }
+        return best;
+    }
+
+    // True when any live player in this scene (local or same-scene
+    // ghost) is horizontally inside [x0, x1]. Host-side AI uses it
+    // for arena gates so a fight starts for whoever walks in, not
+    // just the host's player (see Boss2.tickAttacks).
+    anyPlayerIn(x0, x1) {
+        const local = this.player;
+        if (local && local.alive !== false && local.x > x0 && local.x < x1) return true;
+        const others = this.scene?.network?.otherPlayers;
+        if (others) {
+            const key = this.scene?.scene?.key;
+            for (const id in others) {
+                const g = others[id];
+                if (!g || g.myData?.scene !== key) continue;
+                if (g.health !== undefined && g.health <= 0) continue;
+                if (g.x > x0 && g.x < x1) return true;
+            }
+        }
+        return false;
     }
 
     // Boss rematch trigger: after a boss dies, watch for the player

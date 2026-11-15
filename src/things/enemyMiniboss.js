@@ -119,11 +119,13 @@ export default class Miniboss extends BaseEnemy {
         // is cleared first.
         this.introShown = false;
         this.unlockBossArena();
-        // Opening pause: the player (re)spawns at checkpoint 3 inside
-        // this room, so the first attack waits 3s — long enough to get
+        // Opening pause: the first attack waits 3s — long enough to get
         // bearings or step out of the room — instead of bombing the
-        // respawn point. (Respawn restarts the scene, so activate() runs
-        // on every player respawn, first entry included.)
+        // entry. Checkpoint 3 sits at tile 91 (x 2912), 320px west of
+        // the room's trigger line, so a respawned player is outside
+        // the room, not in it. (Respawn restarts the scene, so
+        // activate() runs on every player respawn, first entry
+        // included.)
         this.nextAttack = this.scene.time.now + 3000;
         this.attackKind = 0;
         this.windingUp = false;
@@ -142,10 +144,26 @@ export default class Miniboss extends BaseEnemy {
         if (this.dead) return;
         if (this.isRemote) {
             // Puppet: phase tint + boss bar track the host's HP (two
-            // phases, so the 0.5 threshold); hover, attacks and the
-            // intro never run.
+            // phases, so the 0.5 threshold); hover and attacks never
+            // run. The name card + arena lock DO show:
+            // when the local player first steps into the room where
+            // the host's Bombardier is fighting, they get the intro
+            // the host's player got — triggered by first sight of the
+            // puppet boss, never by the local spawn. Display-only on
+            // this client: the lock is a local mirror of the host's
+            // lock (it seals only this player's exits), and
+            // die()/deactivate() always remove it, so it can never
+            // outlive the fight.
             this.syncRemotePhase(0.5, -1);
             this.updateBossBarVisibility();
+            this.tryBossIntro('THE BOMBARDIER', 'BOSS OF THE ANTECHAMBER',
+                this.player
+                    && this.player.x > this.arenaLeft + 96
+                    && this.player.x < this.arenaRight,
+                [
+                    { x: this.arenaLeft - 32, y: this.groundTop - 740, w: 32, h: 740 },
+                    { x: this.arenaRight, y: this.groundTop - 740, w: 64, h: 740 },
+                ]);
             return;
         }
         this.hover(time);
@@ -167,12 +185,14 @@ export default class Miniboss extends BaseEnemy {
             ]);
     }
 
-    // Gentle hover, same math as the bomber: drift toward the player's x
-    // at 60px/s, hold altitude around the spawn height with a sine bob.
-    // Clamped to the antechamber so it can't drift back into the den.
+    // Gentle hover, same math as the bomber: drift toward the nearest
+    // live player's x at 60px/s, hold altitude around the spawn height
+    // with a sine bob. Clamped to the antechamber so it can't drift
+    // back into the den.
     hover(time) {
-        if (this.player) {
-            const dx = this.player.x - this.x;
+        const target = this.nearestPlayer();
+        if (target) {
+            const dx = target.x - this.x;
             if (Math.abs(dx) > 30) {
                 this.setVelocityX(Math.sign(dx) * this.driftSpeed);
             } else {
@@ -184,7 +204,7 @@ export default class Miniboss extends BaseEnemy {
         this.setVelocityY(Phaser.Math.Clamp(spring + bob, -120, 120));
         if (this.x < this.arenaLeft) this.setVelocityX(Math.max(this.body.velocity.x, 0));
         if (this.x > this.arenaRight) this.setVelocityX(Math.min(this.body.velocity.x, 0));
-        this.flipX = this.player ? this.player.x < this.x : false;
+        this.flipX = target ? target.x < this.x : false;
     }
 
     updatePhase() {
@@ -200,12 +220,13 @@ export default class Miniboss extends BaseEnemy {
         this.updatePhase();
         if (this.windingUp || !this.player) return;
         if (this.distanceToPlayer() > this.dropRange) return;
-        // Only attack while the player is inside the antechamber (the
-        // room, spawn ±320px): checkpoint 3 sits inside the 800px attack
-        // range, so a respawned player was bombed before they could move.
-        // Outside the room the fight disengages — the player can retreat
-        // to the den and re-enter on their own terms.
-        if (this.player.x < this.arenaLeft || this.player.x > this.arenaRight) return;
+        // Only attack while a player is inside the antechamber (the
+        // room, spawn ±320px): checkpoint 3 is at tile 91 (x 2912),
+        // 320px west of the trigger line, so a respawned player stands
+        // outside the room and the fight, and walks in on their own
+        // terms. Outside the room the fight disengages — the player
+        // can retreat to the den and re-enter on their own terms.
+        if (!this.anyPlayerIn(this.arenaLeft, this.arenaRight)) return;
         if (now < this.nextAttack) return;
 
         const rate = (this.phase === 2 ? this.dropRateP2 : this.dropRate) * this.rateMult;
@@ -251,20 +272,21 @@ export default class Miniboss extends BaseEnemy {
         this.telegraph(() => this.fireSweeper());
     }
 
-    // Three bombs at once — the spread centers on the player's ACTUAL
-    // position (player.y is the body center, so a crouched player's lower
-    // center pulls the bombs down onto them), ±25° around the aim. The
-    // old fixed straight-down spread let a crouched player sit in a
-    // corner the bombs never reached — the cheese Yaya found. Same
-    // projectile setup as the bomber's drop (Bullet + 'fireballsheet' +
-    // softBulletGroup, 4s lifespan).
+    // Three bombs at once — the spread centers on the nearest live
+    // player's ACTUAL position (player.y is the body center, so a
+    // crouched player's lower center pulls the bombs down onto them),
+    // ±25° around the aim. The old fixed straight-down spread let a
+    // crouched player sit in a corner the bombs never reached — the
+    // cheese Yaya found. Same projectile setup as the bomber's drop
+    // (Bullet + 'fireballsheet' + softBulletGroup, 4s lifespan).
     dropBombs() {
         if (this.isRemote) return; // puppets never shoot (Part 2)
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup || !this.player) return;
         this.ensureFireballAnim();
+        const target = this.nearestPlayer() ?? this.player;
         const base = Phaser.Math.RadToDeg(
-            Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y));
+            Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y));
         for (const off of [-25, 0, 25]) {
             const bomb = new Bullet(this.scene, this.x, this.y + 24, 'fireballsheet');
             sm.softBulletGroup.add(bomb);
@@ -277,17 +299,18 @@ export default class Miniboss extends BaseEnemy {
         }
     }
 
-    // Phase 2: a 5-bullet aimed fan at the player, same pattern as the
-    // turret's aimed shots. Narrow spread, dodgeable gaps between shots.
-    // Aimed at the player's center, so it tracks a crouched player too —
-    // the crouch doesn't shrink the target, it moves it, and the fan
-    // follows.
+    // Phase 2: a 5-bullet aimed fan at the nearest live player, same
+    // pattern as the turret's aimed shots. Narrow spread, dodgeable
+    // gaps between shots. Aimed at the player's center, so it tracks
+    // a crouched player too — the crouch doesn't shrink the target,
+    // it moves it, and the fan follows.
     fireFan() {
         if (this.isRemote) return; // puppets never shoot (Part 2)
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup || !this.player) return;
         this.ensureFireballAnim();
-        const base = Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y);
+        const target = this.nearestPlayer() ?? this.player;
+        const base = Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y);
         for (let i = -2; i <= 2; i++) {
             const angleDeg = Phaser.Math.RadToDeg(base) + i * 12;
             const bullet = new Bullet(this.scene, this.x, this.y, 'fireballsheet');
@@ -314,7 +337,8 @@ export default class Miniboss extends BaseEnemy {
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup || !this.player) return;
         this.ensureFireballAnim();
-        const dir = Math.sign(this.player.x - this.x) || 1;
+        const target = this.nearestPlayer() ?? this.player;
+        const dir = Math.sign(target.x - this.x) || 1;
         const sweep = new Bullet(this.scene, this.x, this.groundTop - 24, 'fireballsheet');
         sm.softBulletGroup.add(sweep);
         sweep.play('fireball');

@@ -64,6 +64,10 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         // respawn (the scene restart rebuilds the player, so a fresh
         // object means a fresh flag — this init just makes it explicit).
         this._secondWindUsed = false;
+        // Second Wind i-frame window end (scene clock ms; 0 = none).
+        // The damage gate in playerHealth reads this so a dash ending
+        // mid-window can't cut the 1.5s short.
+        this._secondWindIFramesUntil = 0;
         this.spawnBuffer = true;
         this.meditateTimer = 0;
 

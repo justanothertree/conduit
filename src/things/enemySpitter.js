@@ -92,7 +92,8 @@ export default class Spitter extends BaseEnemy {
         }
     }
 
-    // One aimed fireball at the player — mirrors the turret's shoot().
+    // One aimed fireball at the nearest live player — mirrors the
+    // turret's shoot().
     shoot() {
         if (this.isRemote) return; // puppets never shoot (Part 2)
         const sm = this.scene.spawnManager;
@@ -105,7 +106,8 @@ export default class Spitter extends BaseEnemy {
                 repeat: -1,
             });
         }
-        const angle = Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y);
+        const target = this.nearestPlayer() ?? this.player;
+        const angle = Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y);
         const bullet = new Bullet(this.scene, this.x, this.y, 'fireballsheet');
         sm.softBulletGroup.add(bullet);
         bullet.play('fireball');

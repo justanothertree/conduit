@@ -1,33 +1,64 @@
+import { startKeyFor } from './timeTrialGhost.js';
+
 const CURRENT_VERSION = 0.118;
 
-// Time-trial best runs: { [levelKey]: { time, startX, startY, x[], y[], f } }.
-// Recordings are player-local save data, so validate their shape before
-// trusting them — a corrupt or hand-edited save must not throw in the
-// ghost replay or balloon memory. The 3600-sample cap mirrors
-// TRIAL_MAX_SAMPLES in things/timeTrialGhost.js (6 minutes at 10Hz).
+// Time-trial best runs: { [levelKey]: { [startKey]: { time, startX,
+// startY, x[], y[], f } } } — one best PER START POINT (see
+// things/timeTrialGhost.js): a checkpoint leg never overwrites the
+// full-run best. Recordings are player-local save data, so validate
+// their shape before trusting them — a corrupt or hand-edited save
+// must not throw in the ghost replay or balloon memory. The
+// 3600-sample cap mirrors TRIAL_MAX_SAMPLES in
+// things/timeTrialGhost.js (6 minutes at 10Hz); the 8-entry cap
+// mirrors TRIAL_MAX_STARTS (a level only has a handful of starts).
+// Legacy saves hold ONE flat run per level (no start-point key):
+// those are wrapped under the run's own start key and keep working
+// as that start's best.
+
+function sanitizeBestRun(run) {
+    if (!run || typeof run !== 'object') return null;
+    if (!Number.isFinite(run.time) || run.time <= 0) return null;
+    if (!Number.isFinite(run.startX) || !Number.isFinite(run.startY)) return null;
+    if (!Array.isArray(run.x) || !Array.isArray(run.y)) return null;
+    if (run.x.length !== run.y.length || run.x.length === 0) return null;
+    if (run.x.length > 3600) return null;
+    if (typeof run.f !== 'string' || run.f.length !== run.x.length) return null;
+    if (!/^[01]*$/.test(run.f)) return null;
+    if (!run.x.every((v) => Number.isFinite(v) && Math.abs(v) < 100000)) return null;
+    if (!run.y.every((v) => Number.isFinite(v) && Math.abs(v) < 100000)) return null;
+    return {
+        time: run.time,
+        startX: run.startX,
+        startY: run.startY,
+        x: run.x,
+        y: run.y,
+        f: run.f,
+    };
+}
+
 function sanitizeBestRuns(data) {
     if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
     const out = {};
     for (const key of Object.keys(data)) {
-        const run = data[key];
-        if (!run || typeof run !== 'object') continue;
-        if (!Number.isFinite(run.time) || run.time <= 0) continue;
-        if (!Number.isFinite(run.startX) || !Number.isFinite(run.startY)) continue;
-        if (!Array.isArray(run.x) || !Array.isArray(run.y)) continue;
-        if (run.x.length !== run.y.length || run.x.length === 0) continue;
-        if (run.x.length > 3600) continue;
-        if (typeof run.f !== 'string' || run.f.length !== run.x.length) continue;
-        if (!/^[01]*$/.test(run.f)) continue;
-        if (!run.x.every((v) => Number.isFinite(v) && Math.abs(v) < 100000)) continue;
-        if (!run.y.every((v) => Number.isFinite(v) && Math.abs(v) < 100000)) continue;
-        out[key] = {
-            time: run.time,
-            startX: run.startX,
-            startY: run.startY,
-            x: run.x,
-            y: run.y,
-            f: run.f,
-        };
+        const level = data[key];
+        if (!level || typeof level !== 'object') continue;
+        // Legacy shape: the level value IS a run (flat, no start key).
+        const legacy = sanitizeBestRun(level);
+        if (legacy) {
+            out[key] = { [startKeyFor(legacy.startX, legacy.startY)]: legacy };
+            continue;
+        }
+        // Current shape: { [startKey]: run } — re-key by each run's
+        // own start, so a hand-edited key can't strand a run under
+        // the wrong start point.
+        const starts = {};
+        for (const startKey of Object.keys(level)) {
+            if (Object.keys(starts).length >= 8) break;
+            const run = sanitizeBestRun(level[startKey]);
+            if (!run) continue;
+            starts[startKeyFor(run.startX, run.startY)] = run;
+        }
+        if (Object.keys(starts).length) out[key] = starts;
     }
     return out;
 }
@@ -44,8 +75,9 @@ export default {
     volume: { master: 1, music: 1, voice: 1 },
     collectedItems: [],
     cards: [],
-    // Personal-best time-trial recordings, one per level (see
-    // things/timeTrialGhost.js). Session-only checkpoint stays separate.
+    // Personal-best time-trial recordings, one per start point per
+    // level (see things/timeTrialGhost.js). Session-only checkpoint
+    // stays separate.
     bestRuns: {},
     flags: {
         seenIntro: false,

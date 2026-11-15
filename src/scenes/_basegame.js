@@ -2,7 +2,7 @@ import Player from '../things/Player.js';
 import NetworkManager from '../things/NetworkManager.js';
 import GameManager from '../things/GameManager.js';
 import SpawnManager from '../things/_spawnmanager.js';
-import { TimeTrialRecorder, TimeTrialGhost, TRIAL_START_TOLERANCE } from '../things/timeTrialGhost.js';
+import { TimeTrialRecorder, TimeTrialGhost, bestRunForStart, startKeyFor, TRIAL_MAX_STARTS } from '../things/timeTrialGhost.js';
 import WeaponGroup from '../weapons/WeaponGroup.js';
 import SoundUtil from '../things/soundUtils.js';
 import ScoreBoard from '../things/scoreBoard.js';
@@ -501,13 +501,13 @@ export default class BaseGame extends Phaser.Scene {
     this.trialFinished = false;
     if (!this.trialEnabled || !this.player) return;
     this.trialRecording = new TimeTrialRecorder(this);
-    const best = GameManager.bestRuns?.[this.key];
-    // Only show the ghost when this run starts where the best run
+    // Only show the ghost when this run starts where a stored best
     // started — World 1 respawns at checkpoints, so a best leg only
-    // replays from its own checkpoint.
-    if (best && Math.abs(this.player.x - best.startX) <= TRIAL_START_TOLERANCE
-      && Math.abs(this.player.y - best.startY) <= TRIAL_START_TOLERANCE) {
-      this.trialGhost = new TimeTrialGhost(this, best);
+    // replays from its own checkpoint (bestRunForStart picks the best
+    // for THIS start point, within tolerance).
+    const found = bestRunForStart(GameManager.bestRuns?.[this.key], this.player.x, this.player.y);
+    if (found) {
+      this.trialGhost = new TimeTrialGhost(this, found.run);
     }
   }
 
@@ -520,7 +520,7 @@ export default class BaseGame extends Phaser.Scene {
 
   // Called by the finish line (and World 1's vault portal via the same
   // FinishLine class) with the final race time. Saves the recording
-  // when it beats the stored best for this level.
+  // when it beats the stored best for this run's start point.
   onTrialFinish(time) {
     if (!this.trialEnabled || this.trialFinished) return;
     this.trialFinished = true;
@@ -528,11 +528,24 @@ export default class BaseGame extends Phaser.Scene {
     this.trialRecording = null;
     this.stopTrialGhost();
     if (!recording || typeof time !== 'number' || !Number.isFinite(time) || time <= 0) return;
-    const best = GameManager.bestRuns?.[this.key];
-    if (best && time >= best.time) return;
     const run = recording.toBestRun(Math.round(time * 100) / 100);
     if (!run) return; // capped run: recording incomplete, keep the old best
-    GameManager.bestRuns[this.key] = run;
+    // One best per start point: this run only ever competes with the
+    // best from ITS start, so a fast checkpoint leg can never
+    // overwrite the full-run best (or any other leg's best).
+    GameManager.bestRuns ??= {};
+    const levelBest = GameManager.bestRuns[this.key] ?? (GameManager.bestRuns[this.key] = {});
+    const key = startKeyFor(run.startX, run.startY);
+    const prev = bestRunForStart(levelBest, run.startX, run.startY);
+    if (prev && time >= prev.run.time) return;
+    // A within-tolerance match under a different key is the same
+    // start point (a spawn that moved a few px between versions):
+    // drop the old key so one start never holds two bests.
+    if (prev && prev.key !== key) delete levelBest[prev.key];
+    // Bound the save: a level only has a handful of starts, so a new
+    // start past the cap is dropped rather than evicting a best.
+    if (!levelBest[key] && Object.keys(levelBest).length >= TRIAL_MAX_STARTS) return;
+    levelBest[key] = run;
     GameManager.save();
     // Small fanfare at the finish: floating "NEW BEST!" that fades out.
     const label = this.add.text(this.player.x, this.player.y - 90, 'NEW BEST!', {

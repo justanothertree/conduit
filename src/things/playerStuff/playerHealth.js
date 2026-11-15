@@ -19,6 +19,12 @@ export function playerAdjustHealth(player, amount) {
 export function playerTakeDamage(player, x, y, damage, stunDuration, actor) {
     if (player.scene.physics.isPaused) return false;
     if (player.iFrame) return false;
+    // Second Wind i-frames run their full 1.5s even when a dash ends
+    // mid-window: the dash state's exit clears player.iFrame (see
+    // playerStates dash.exit), so the window is enforced here at the
+    // damage gate, not via the flag. playerStates.js is untouched —
+    // the gate is the only reader of iFrame.
+    if (player.scene?.time?.now < (player._secondWindIFramesUntil ?? 0)) return false;
     if (player.hitCD) return false;
     if (!player.alive) return false;
 
@@ -51,7 +57,17 @@ export function playerTakeDamage(player, x, y, damage, stunDuration, actor) {
             player._secondWindUsed = true;
             player.adjustHealth(5 + 5 * sw);
             player.iFrame = true;
-            player.scene.time.delayedCall(1500, () => { player.iFrame = false; });
+            // The window's end is a timestamp, not just the flag: the
+            // dash exit clears iFrame, so the gate above reads this to
+            // keep the full 1.5s. The delayedCall clears the timestamp
+            // and the flag — but not while a dash is still running, or
+            // it would cut the dash's own i-frames short instead; the
+            // dash exit clears the flag when the dash ends.
+            player._secondWindIFramesUntil = player.scene.time.now + 1500;
+            player.scene.time.delayedCall(1500, () => {
+                player._secondWindIFramesUntil = 0;
+                if (!player.isDashing) player.iFrame = false;
+            });
             const label = player.scene.add.text(player.x, player.y - 60, 'SECOND WIND!', {
                 fontSize: '28px',
                 color: '#7dff9a',

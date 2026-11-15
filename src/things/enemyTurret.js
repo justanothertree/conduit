@@ -67,11 +67,13 @@ export default class Turret extends BaseEnemy {
     }
 
     facePlayer() {
-        if (!this.player) return;
-        this.flipX = this.player.x < this.x;
+        const target = this.nearestPlayer();
+        if (!target) return;
+        this.flipX = target.x < this.x;
     }
 
-    // One aimed fireball at the player — mirrors the boss's fireBullet.
+    // One aimed fireball at the nearest live player — mirrors the
+    // boss's fireBullet.
     shoot() {
         if (this.isRemote) return; // puppets never shoot (Part 2)
         const sm = this.scene.spawnManager;
@@ -84,7 +86,8 @@ export default class Turret extends BaseEnemy {
                 repeat: -1,
             });
         }
-        const angle = Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y);
+        const target = this.nearestPlayer() ?? this.player;
+        const angle = Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y);
         const bullet = new Bullet(this.scene, this.x, this.y, 'fireballsheet');
         sm.softBulletGroup.add(bullet);
         bullet.play('fireball');

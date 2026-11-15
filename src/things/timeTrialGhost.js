@@ -5,9 +5,18 @@
 // so that is explicitly out of scope (future work).
 //
 // Recording: 10Hz samples of (x, y, facing) from run start to the finish
-// line, stored in GameManager.bestRuns[level] as compact parallel arrays
-// (rounded ints + one '0'/'1' char per sample for facing). A 2-minute run
-// is ~1200 samples, ~13KB of JSON — small against localStorage.
+// line, stored in GameManager.bestRuns[level][startKey] as compact
+// parallel arrays (rounded ints + one '0'/'1' char per sample for
+// facing). A 2-minute run is ~1200 samples, ~13KB of JSON — small
+// against localStorage. One best PER START POINT: World 1 respawns
+// at checkpoints, so a checkpoint-to-finish leg is a different run
+// from the full level run, and a fast leg must never overwrite the
+// full-run best (or any other leg's best) — each start only ever
+// competes with its own best. startKeyFor() is the map key (exact
+// integer spawn coords — spawn points are deterministic); the replay
+// lookup also accepts a best whose start is within
+// TRIAL_START_TOLERANCE, so a spawn that moved a few px between
+// versions still matches.
 // Replay: a lightweight Container (player sprite + best-time label) that
 // follows the samples, lerped, synced to the scene's race clock. It has
 // no physics body, collides with nothing, and never blocks the player.
@@ -18,6 +27,38 @@ export const TRIAL_MAX_SAMPLES = 3600; // 6 minutes at 10Hz; longer runs
 export const TRIAL_START_TOLERANCE = 64; // px: the ghost only shows when
 // this run starts where the best run started. World 1 respawns at
 // checkpoints, so a best leg only replays from its own checkpoint.
+export const TRIAL_MAX_STARTS = 8; // bests kept per level — a level
+// only ever has a handful of starts (level start + checkpoints), so
+// anything beyond that is stale data, not a real start point.
+
+// Map key for a run's start point: exact integer spawn coords.
+// Spawn points are deterministic (level spawn, checkpoint spots),
+// so the same start always keys the same slot.
+export function startKeyFor(x, y) {
+    return Math.round(x) + ',' + Math.round(y);
+}
+
+// Best run for a run starting at (x, y): the entry stored under
+// that start's key, or — if the spawn moved a few px between
+// versions — the nearest stored start within TRIAL_START_TOLERANCE.
+// Returns { key, run } or null. `levelBest` is the per-level map
+// (GameManager.bestRuns[level]) or null/undefined.
+export function bestRunForStart(levelBest, x, y) {
+    if (!levelBest || typeof levelBest !== 'object') return null;
+    const key = startKeyFor(x, y);
+    if (levelBest[key]) return { key, run: levelBest[key] };
+    let best = null;
+    let bestD2 = TRIAL_START_TOLERANCE * TRIAL_START_TOLERANCE;
+    for (const k of Object.keys(levelBest)) {
+        const run = levelBest[k];
+        if (!run) continue;
+        const dx = run.startX - x;
+        const dy = run.startY - y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 <= bestD2) { bestD2 = d2; best = { key: k, run }; }
+    }
+    return best;
+}
 
 export function formatTrialTime(seconds) {
     const m = Math.floor(seconds / 60);

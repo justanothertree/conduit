@@ -77,9 +77,18 @@ export default class Boss extends BaseEnemy {
         if (this.isRemote) {
             // Puppet: phase tint + boss bar track the host's HP (via
             // syncRemotePhase, which has no volley side effects);
-            // patrol, volleys, leaps and the intro never run.
+            // patrol, volleys and leaps never run. The
+            // name card DOES show: when the local player first steps
+            // into the arena where the host's boss is fighting, they
+            // get the intro the host's player got — triggered by
+            // first sight of the puppet boss, never by the local
+            // spawn. (No lock here: Flowline's arena is open.)
             this.syncRemotePhase();
             this.updateBossBarVisibility();
+            this.tryBossIntro('FLOWLINE GUARDIAN', 'END OF THE FLOWLINE',
+                this.player && this.arenaLeft && this.arenaRight
+                    && this.player.x > this.arenaLeft
+                    && this.player.x < this.arenaRight);
             return;
         }
         this.facePlayer();
@@ -97,10 +106,12 @@ export default class Boss extends BaseEnemy {
                 && this.player.x < this.arenaRight);
     }
 
-    // Face the player without touching patrol's speed logic.
+    // Face the nearest live player without touching patrol's speed
+    // logic — a non-host alone in the arena is a target too.
     facePlayer() {
-        if (!this.player) return;
-        const dx = this.player.x - this.x;
+        const target = this.nearestPlayer();
+        if (!target) return;
+        const dx = target.x - this.x;
         if (Math.abs(dx) > 40) this.direction = Math.sign(dx);
         this.flipX = this.direction > 0;
     }
@@ -285,7 +296,8 @@ export default class Boss extends BaseEnemy {
         const onGround = this.body?.blocked.down || this.body?.touching.down;
         if (this.phase === 3 && onGround && now >= this.nextLeap) {
             this.nextLeap = now + 4000;
-            const dx = this.player.x - this.x;
+            const target = this.nearestPlayer();
+            const dx = (target ? target.x : this.player.x) - this.x;
             this.setVelocity(Math.sign(dx) * 500, -550);
         }
     }
@@ -293,8 +305,9 @@ export default class Boss extends BaseEnemy {
     // Phase-appropriate pattern. Phases 2 and 3 alternate two volleys so the
     // fight reads as bullet-hell rather than one repeated shot.
     pickPattern() {
+        const target = this.nearestPlayer() ?? this.player;
         const aimed = Phaser.Math.RadToDeg(
-            Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y));
+            Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y));
         if (this.phase === 1) {
             return { kind: 'spread', count: 5, stepDeg: 14, speed: 450, windUp: 400, base: aimed };
         }
@@ -332,9 +345,10 @@ export default class Boss extends BaseEnemy {
     }
 
     phaseBurst() {
-        if (!this.player || this.dead) return;
+        const target = this.nearestPlayer() ?? this.player;
+        if (!target || this.dead) return;
         const gapAt = Phaser.Math.RadToDeg(
-            Phaser.Math.Angle.Between(this.x, this.y, this.player.x, this.player.y));
+            Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y));
         this.windingUp = true;
         const gen = ++this.volleyGen;
         this.setTint(0xfff176);

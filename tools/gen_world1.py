@@ -23,8 +23,9 @@ Layout (tiles, 32px; map is 168x80, y grows downward):
                              2 bombers overhead, swarmer pack, spitter,
                              cover blocks
   D2 Antechamber   x 98-118   640px-wide room (was 256px): the Bombardier
-                             mini-boss, checkpoint 3, stepped platforms so
-                             the fight has room to breathe and dodge in
+                             mini-boss, stepped platforms so the fight has
+                             room to breathe and dodge in (checkpoint 3 sits
+                             just west of the room, in the den — see below)
   E  Boss arena    x 120-152  Iron Warden (boss 2), 1056px wide (was 736px),
                              stair-stepped platforms (<=3-tile rises) for
                              wall-jump/dash play, ground doorway in the
@@ -194,6 +195,14 @@ add("spawnSourceBlock", 96, 66)          # cover
 for i in range(76, 95, 2):
     coin(i, 66)
 shard(86, 52)                            # w1-07: high over the den
+# Checkpoint 3 sits at the den's east end, just OUTSIDE the antechamber:
+# the old spot (tile 103, x 3296) was inside the Bombardier trigger
+# (player.x > arenaLeft + 96 = 3232), so every Warden retry respawned
+# the player sealed inside the room with a hard-mode Bombardier.
+# Tile 91 is the closest free floor tile west of the room — tiles 92/94
+# hold coins, 93 a charger, 95 the spitter, 96 the cover block — 320px
+# clear of the trigger line and on the walk back into the fight.
+checkpoint(91, 66)                       # checkpoint 3: den's east end
 # antechamber before the boss — 640px wide (tiles 98-118), up from 256px:
 # the Bombardier fight finally has room to breathe. Stepped platforms
 # (<=3-tile rises, the generator's movement rule) give the player
@@ -212,7 +221,6 @@ add("spawnDashBuff", 100, 66)
 # Spawn is the room's center tile (108), so the ±320px gate stays
 # centered on the room.
 add("spawnMiniboss", 108, 58, props=[prop("health", "int", 250)])
-checkpoint(103, 66)                      # checkpoint 3: boss antechamber
 shard(115, 54)                           # w1-08: high over the fight (risk)
 
 # ---- E: boss arena (Iron Warden) — 1056px wide (tiles 120-152), up

@@ -60,7 +60,17 @@ export default class SpawnManager {
         enemy.netId = netId;
         enemy.netType = type;
         if (!enemy.name) enemy.name = type;
-        enemy.isRemote = isRemote;
+        // The remote flag routes through setRemote, never a direct
+        // write: a direct write left fresh puppets with gravity on
+        // and the 33ms lerp (applyEnemyState's `if (!enemy.isRemote)
+        // setRemote(true)` saw the flag already set and skipped the
+        // setup), and left ex-puppets respawned locally with puppet
+        // setup still parked. Bat/sunman spawns call setRemote
+        // before init() (init needs the flag for its homing
+        // decision); every other spawn funnels through here, so this
+        // is where their transition runs.
+        if (isRemote) enemy.setRemote(true);
+        else if (enemy.isRemote) enemy.setRemote(false);
         this.netEnemies.set(netId, enemy);
         return enemy;
     }
@@ -189,15 +199,19 @@ export default class SpawnManager {
 
         if (bat && bat.activate(x, y, health)) {
             // isRemote must be set BEFORE init(): init() only starts
-            // the homing timer for local enemies.
-            bat.isRemote = isRemote;
+            // the homing timer for local enemies. Route through
+            // setRemote, not a direct write — a direct write leaves
+            // the puppet setup (gravity parked, 90ms lerp, AI off)
+            // unrun, and registerNetEnemy below would early-return
+            // on the already-set flag (see registerNetEnemy).
+            bat.setRemote(isRemote);
             bat.init();
             return this.registerNetEnemy(bat, 'bat', x, y, isRemote, id);
         }
         // Create new if no usable bat
         bat = new Bat(this.scene, x, y, health);
         this.batGroup.add(bat);
-        bat.isRemote = isRemote;
+        bat.setRemote(isRemote);
         bat.init();
         return this.registerNetEnemy(bat, 'bat', x, y, isRemote, id);
     }
@@ -206,7 +220,10 @@ export default class SpawnManager {
         let sunMan = this.sunmanGroup.getFirstDead(false);
 
         if (sunMan && sunMan.activate(x, y, health)) {
-            sunMan.isRemote = isRemote;
+            // setRemote, not a direct write — see spawnBat: the flag
+            // must be set before init(), and the puppet setup must
+            // actually run.
+            sunMan.setRemote(isRemote);
             sunMan.init();
             return this.registerNetEnemy(sunMan, 'sunman', x, y, isRemote, id);
         }
@@ -214,7 +231,7 @@ export default class SpawnManager {
         // Create new if no usable bat
         sunMan = new SunMan(this.scene, x, y, health);
         this.sunmanGroup.add(sunMan);
-        sunMan.isRemote = isRemote;
+        sunMan.setRemote(isRemote);
         sunMan.init();
         return this.registerNetEnemy(sunMan, 'sunman', x, y, isRemote, id);
     }
