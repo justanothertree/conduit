@@ -62,6 +62,8 @@ export default class Spitter extends BaseEnemy {
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
         if (this.dead || this.stunned) return;
+        // Remote puppet: no patrol, no spit telegraph.
+        if (this.isRemote) return;
         // Winding up means standing still: the telegraph is only fair if
         // the spitter plants its feet for it (and it gives the player the
         // opening to close in).
@@ -92,6 +94,7 @@ export default class Spitter extends BaseEnemy {
 
     // One aimed fireball at the player — mirrors the turret's shoot().
     shoot() {
+        if (this.isRemote) return; // puppets never shoot (Part 2)
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup || !this.player) return;
         if (!this.scene.anims.get('fireball')) {
@@ -108,6 +111,9 @@ export default class Spitter extends BaseEnemy {
         bullet.play('fireball');
         this.scene.physics.velocityFromAngle(
             Phaser.Math.RadToDeg(angle), 380, bullet.body.velocity);
+        // Part 2: the host also emits the shot so non-hosts spawn the
+        // same fireball locally.
+        this.emitEnemyShot(bullet);
         // 4s lifespan (same as the turret's/boss's) so shots can't fly forever.
         this.scene.time.delayedCall(4000, () => {
             if (bullet.active) bullet.destroy();

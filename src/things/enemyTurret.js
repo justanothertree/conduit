@@ -46,6 +46,9 @@ export default class Turret extends BaseEnemy {
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
         if (this.dead || this.stunned) return;
+        // Remote puppet: no telegraph, no shooting. The delayed
+        // wind-up completion below also checks isRemote via shoot().
+        if (this.isRemote) return;
         this.facePlayer();
         if (!this.player || this.windingUp) return;
         const now = this.scene.time.now;
@@ -70,6 +73,7 @@ export default class Turret extends BaseEnemy {
 
     // One aimed fireball at the player — mirrors the boss's fireBullet.
     shoot() {
+        if (this.isRemote) return; // puppets never shoot (Part 2)
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup || !this.player) return;
         if (!this.scene.anims.get('fireball')) {
@@ -86,6 +90,10 @@ export default class Turret extends BaseEnemy {
         bullet.play('fireball');
         this.scene.physics.velocityFromAngle(
             Phaser.Math.RadToDeg(angle), 450, bullet.body.velocity);
+        // Part 2: the host also emits the shot so non-hosts spawn the
+        // same fireball locally (emitEnemyShot is a host-only no-op
+        // otherwise — see _baseEnemy).
+        this.emitEnemyShot(bullet);
         // 4s lifespan (same as the boss's) so shots can't fly forever.
         this.scene.time.delayedCall(4000, () => {
             if (bullet.active) bullet.destroy();

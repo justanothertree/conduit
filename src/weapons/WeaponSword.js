@@ -73,6 +73,10 @@ export default class WeaponSword extends WeaponBase {
         const data = this.calculateShot(pointer, 70);
         const angleDeg = Phaser.Math.RadToDeg(Phaser.Math.Angle.Between(data.start.x, data.start.y, data.cursorPos.x, data.cursorPos.y));
 
+        // Multiplayer: other players render this swing display-only.
+        // start/direction are calculateShot's plain {x, y} outputs.
+        this.emitAttack('sword', { start: data.start, direction: data.direction, angle: angleDeg, wave: this.doesFireWave });
+
         this.swordOffset = data.vector;
 
         this.sword = this.scene.add.sprite(data.start.x + data.vector.x, data.start.y + data.vector.y, 'sword')

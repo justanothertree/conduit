@@ -292,6 +292,17 @@ export default class WeaponBase {
         playSound(this.scene, this.throwSoundId);
     }
 
+    // Multiplayer attack visuals (Part 1): broadcast a real local fire so
+    // other players' ghosts can render it display-only. Volatile — a
+    // missed attack frame is superseded by the next one, so it must be
+    // dropped, not buffered, when the transport is down. Call only after
+    // the fire guards pass (never on cooldown-blocked attempts, never
+    // for a ghost render). No connect() here — the socket auto-connects
+    // and volatile.emit is a no-op while it is down.
+    emitAttack(kind, params) {
+        this.player?.network?.socket?.volatile.emit('attackRequest', { kind, ...params });
+    }
+
     mapRangeClamped(value, inMin, inMax, outMin, outMax) {
         if (inMin === inMax) return outMin; // Avoid divide by zero
 

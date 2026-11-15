@@ -158,6 +158,11 @@ export default class AuraZap extends WeaponBase {
 
 
     zapVisual(x, y, target) {
+        // Multiplayer: other players draw this zap line display-only.
+        // Endpoint coordinates, not a target reference — the remote
+        // target may not exist on the receiver.
+        this.emitAttack('aurazap', { target: { x, y } });
+
         //this.zapLine = new ZapSprite(this.scene, x, y, this.player, target)
         const zapLine = this.zapLineGroup.get()
         if (zapLine) {

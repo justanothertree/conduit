@@ -140,6 +140,14 @@ export default class Miniboss extends BaseEnemy {
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
         if (this.dead) return;
+        if (this.isRemote) {
+            // Puppet: phase tint + boss bar track the host's HP (two
+            // phases, so the 0.5 threshold); hover, attacks and the
+            // intro never run.
+            this.syncRemotePhase(0.5, -1);
+            this.updateBossBarVisibility();
+            return;
+        }
         this.hover(time);
         this.tickAttacks();
         this.updateBossBarVisibility();
@@ -251,6 +259,7 @@ export default class Miniboss extends BaseEnemy {
     // projectile setup as the bomber's drop (Bullet + 'fireballsheet' +
     // softBulletGroup, 4s lifespan).
     dropBombs() {
+        if (this.isRemote) return; // puppets never shoot (Part 2)
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup || !this.player) return;
         this.ensureFireballAnim();
@@ -262,6 +271,9 @@ export default class Miniboss extends BaseEnemy {
             bomb.play('fireball');
             this.scene.physics.velocityFromAngle(base + off, 380 * this.shotSpeedMult, bomb.body.velocity);
             this.trackShot(bomb);
+            // Part 2: the host also emits each shot so non-hosts spawn
+            // the same bomb locally.
+            this.emitEnemyShot(bomb);
         }
     }
 
@@ -271,6 +283,7 @@ export default class Miniboss extends BaseEnemy {
     // the crouch doesn't shrink the target, it moves it, and the fan
     // follows.
     fireFan() {
+        if (this.isRemote) return; // puppets never shoot (Part 2)
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup || !this.player) return;
         this.ensureFireballAnim();
@@ -282,6 +295,9 @@ export default class Miniboss extends BaseEnemy {
             bullet.play('fireball');
             this.scene.physics.velocityFromAngle(angleDeg, 450 * this.shotSpeedMult, bullet.body.velocity);
             this.trackShot(bullet);
+            // Part 2: the host also emits each shot so non-hosts spawn
+            // the same fireball locally.
+            this.emitEnemyShot(bullet);
         }
     }
 
@@ -294,6 +310,7 @@ export default class Miniboss extends BaseEnemy {
     // clears it after it crosses the room. One shot, not a wall: the
     // player can jump it or dash through the gap behind it.
     fireSweeper() {
+        if (this.isRemote) return; // puppets never shoot (Part 2)
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup || !this.player) return;
         this.ensureFireballAnim();
@@ -303,6 +320,9 @@ export default class Miniboss extends BaseEnemy {
         sweep.play('fireball');
         sweep.body.velocity.set(dir * 380 * this.shotSpeedMult, 0);
         this.trackShot(sweep);
+        // Part 2: the host also emits the shot so non-hosts spawn the
+        // same sweeper locally.
+        this.emitEnemyShot(sweep);
     }
 
     ensureFireballAnim() {
@@ -364,9 +384,13 @@ export default class Miniboss extends BaseEnemy {
         this.dropFirstKillLoot();
         // Rematch: leaving the arena and coming back re-spawns the boss in
         // hard mode (see armRematchTrigger). First-kill loot is flag-guarded,
-        // so a rematch can never pay it twice.
-        this.armRematchTrigger(this.homeX, this.homeY,
-            () => this.scene.spawnManager?.spawnMiniboss(this.homeX, this.homeY));
+        // so a rematch can never pay it twice. Host-only (Part 2): a
+        // non-host's puppet death must never re-spawn the boss locally —
+        // if that client later becomes host, onHostChanged re-arms it.
+        if (this.scene.network?.isHost() !== false) {
+            this.armRematchTrigger(this.homeX, this.homeY,
+                () => this.scene.spawnManager?.spawnMiniboss(this.homeX, this.homeY));
+        }
         this.emit('die', player);
         this.deactivate();
     }

@@ -74,7 +74,10 @@ export default class WeaponShurikan extends WeaponBase {
             extra.setVelocity(vx, vy);
         }
 
-        this.player.network.socket.emit('shurikanthrow', { start, direction, extras: extraVelocities })
+        // Chain count + initial targets ride the throw so the receiver's
+        // ghost shurikan chains the same way (visual-only, against the
+        // receiver's own local enemies — see ShurikanProjectile.enemyHit).
+        this.player.network.socket.emit('shurikanthrow', { start, direction, extras: extraVelocities, chain: this.chainCount, targets: this.initialTargets })
 
         this.playThrowSound();
     }

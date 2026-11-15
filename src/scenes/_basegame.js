@@ -2,6 +2,7 @@ import Player from '../things/Player.js';
 import NetworkManager from '../things/NetworkManager.js';
 import GameManager from '../things/GameManager.js';
 import SpawnManager from '../things/_spawnmanager.js';
+import { TimeTrialRecorder, TimeTrialGhost, TRIAL_START_TOLERANCE } from '../things/timeTrialGhost.js';
 import WeaponGroup from '../weapons/WeaponGroup.js';
 import SoundUtil from '../things/soundUtils.js';
 import ScoreBoard from '../things/scoreBoard.js';
@@ -15,12 +16,23 @@ export default class BaseGame extends Phaser.Scene {
     this.key = key;
   }
 
+  // Time-trial ghost (see things/timeTrialGhost.js): off by default;
+  // timed levels (LevelFlow, World1) opt in. The ghost is a local
+  // personal-best replay — no server, no multiplayer.
+  trialEnabled = false;
+
   preload() {
     this.loadingBar();
   }
 
   update(time, delta) {
     if (this.player && this.playerSpawned) this.player.handleInput(time, delta);
+    // Record the run at 10Hz while the race clock is running. Cheap:
+    // a few arithmetic ops + one array push per sample boundary.
+    if (this.trialRecording && !this.trialFinished && this.raceTimer
+      && typeof this.raceTime === 'number' && this.player) {
+      this.trialRecording.sample(this.raceTime);
+    }
   }
   setupWorld(xleft = 0, ytop = 0, width = 6400, height = 12800) {
     GameManager.load();
@@ -87,6 +99,12 @@ export default class BaseGame extends Phaser.Scene {
   setupNet() {
 
     this.network.refreshScene(this);
+    // Level entry re-syncs with the new scene key (the Player
+    // constructor already fired one sync, but it is 500ms-throttled,
+    // so this is a no-op when that one just went out — and it covers
+    // a refresh without a fresh Player). The scene field is what
+    // re-elects the host for this level.
+    this.player?.syncNetwork();
     chatNetwork();
     setScene(this);
   }
@@ -277,6 +295,11 @@ export default class BaseGame extends Phaser.Scene {
     if (this.walls2) { this.walls2.destroy(); this.walls2 = null; }
 
     if (this.tilemap) { this.tilemap.destroy(); this.tilemap = null; }
+
+    // The ghost is a display-list child, so shutdown destroys it anyway;
+    // clear the references so a restarted scene never reuses a dead one.
+    this.trialGhost = null;
+    this.trialRecording = null;
   }
 
   setupGroups() {
@@ -465,6 +488,66 @@ export default class BaseGame extends Phaser.Scene {
         this.raceTimeText?.setText(this.raceTime.toFixed(2));
       },
     })
+    // A fresh race clock means a fresh run: restart the recording and
+    // the ghost replay with it (death restarts the scene, so this also
+    // resets the ghost on respawn).
+    this.startTrialRun();
+  }
+
+  // Time-trial ghost lifecycle (no-op unless the level opted in).
+  startTrialRun() {
+    this.stopTrialGhost();
+    this.trialRecording = null;
+    this.trialFinished = false;
+    if (!this.trialEnabled || !this.player) return;
+    this.trialRecording = new TimeTrialRecorder(this);
+    const best = GameManager.bestRuns?.[this.key];
+    // Only show the ghost when this run starts where the best run
+    // started — World 1 respawns at checkpoints, so a best leg only
+    // replays from its own checkpoint.
+    if (best && Math.abs(this.player.x - best.startX) <= TRIAL_START_TOLERANCE
+      && Math.abs(this.player.y - best.startY) <= TRIAL_START_TOLERANCE) {
+      this.trialGhost = new TimeTrialGhost(this, best);
+    }
+  }
+
+  stopTrialGhost() {
+    if (this.trialGhost) {
+      this.trialGhost.destroy();
+      this.trialGhost = null;
+    }
+  }
+
+  // Called by the finish line (and World 1's vault portal via the same
+  // FinishLine class) with the final race time. Saves the recording
+  // when it beats the stored best for this level.
+  onTrialFinish(time) {
+    if (!this.trialEnabled || this.trialFinished) return;
+    this.trialFinished = true;
+    const recording = this.trialRecording;
+    this.trialRecording = null;
+    this.stopTrialGhost();
+    if (!recording || typeof time !== 'number' || !Number.isFinite(time) || time <= 0) return;
+    const best = GameManager.bestRuns?.[this.key];
+    if (best && time >= best.time) return;
+    const run = recording.toBestRun(Math.round(time * 100) / 100);
+    if (!run) return; // capped run: recording incomplete, keep the old best
+    GameManager.bestRuns[this.key] = run;
+    GameManager.save();
+    // Small fanfare at the finish: floating "NEW BEST!" that fades out.
+    const label = this.add.text(this.player.x, this.player.y - 90, 'NEW BEST!', {
+      fontSize: '24px',
+      color: '#66ffee',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    label.setDepth(9);
+    this.tweens.add({
+      targets: label,
+      y: label.y - 40,
+      alpha: 0,
+      duration: 1600,
+      onComplete: () => label.destroy(),
+    });
   }
 
 

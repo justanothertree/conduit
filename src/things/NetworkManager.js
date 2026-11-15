@@ -3,6 +3,18 @@ import GhostPlayer from './GhostPlayer.js';
 import GameManager from './GameManager.js';
 import PlayerUI from '../scenes/playerUI.js';
 import VoiceChatManager from './VoiceChatManager.js';
+import Bullet from './bullet.js';
+
+// Part 2 — host-authoritative enemies. The wire type allowlist: the
+// canonical lowercase types SpawnManager registers (netType). Anything
+// else in a state packet is dropped, never spawned.
+const ENEMY_TYPES = new Set([
+  'duck', 'bat', 'sunman', 'turret', 'charger', 'bomber',
+  'miniboss', 'boss', 'boss2', 'swarmer', 'spitter',
+]);
+const ENEMY_BROADCAST_HZ_MS = 83; // ~12Hz host broadcast
+const ENEMY_MAX_ENTRIES = 48; // per-tick cap (levels hold 17–24)
+const ENEMY_FULL_EVERY_TICKS = 12; // full snapshot ~1s, deltas between
 
 export default class NetworkManager extends Phaser.Events.EventEmitter {
   static instance;
@@ -14,7 +26,17 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
 
     this.scene = scene;
     this.otherPlayers = {};
-    this.otherEnemies = {};
+
+    // Part 2 — host enemy broadcast runs on a wall-clock interval,
+    // not the scene loop: it must keep ticking at ~12Hz regardless of
+    // frame rate, and it reads this.scene dynamically so scene swaps
+    // just work. The singleton constructor runs once, so one timer
+    // exists for the page. _enemyLastSent is the delta baseline
+    // (netId → last sent entry); reset on scene change / host gain.
+    this._enemyLastSent = null;
+    this._enemyTick = 0;
+    this._enemyBroadcastTimer = setInterval(
+      () => this.broadcastEnemyState(), ENEMY_BROADCAST_HZ_MS);
 
     const serverURL =
       location.hostname === 'localhost' || location.hostname === '127.0.0.1'
@@ -59,7 +81,7 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       }, 5000);
 
       // Initial sync request after gathering local player data
-      const data = GameManager.getNetworkData();
+      const data = GameManager.getNetworkData(this.scene.scene.key);
 
       this.socket.emit('playerSyncRequest', { data });
     });
@@ -79,7 +101,7 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       console.log('Reconnected to server after', attemptNumber, 'tries');
 
       // Re-send player data to re-register this client
-      const data = GameManager.getNetworkData();
+      const data = GameManager.getNetworkData(this.scene.scene.key);
       const location = GameManager.getLastLocation();
       this.socket.emit('playerSyncRequest', { x: location.x, y: location.y, data });
     });
@@ -93,6 +115,7 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
           this.addOtherPlayer(id, data);
         }
       });
+      this.recomputeHost();
     });
 
     // New player joined
@@ -100,6 +123,7 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       if (!this.otherPlayers[id] && id !== this.socket.id) {
         this.addOtherPlayer(id, data);
       }
+      this.recomputeHost();
     });
     // Player left
     this.socket.on('playerLeft', ({ id }) => {
@@ -108,6 +132,7 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
         player.destroy();
         delete this.otherPlayers[id];
       }
+      this.recomputeHost();
     });
 
     this.socket.on('droppedDueToInactivity', () => {
@@ -120,6 +145,9 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       if (player) {
         player.syncAll(data);
       }
+      // A sync carries the sender's current scene, so a level change
+      // re-elects the host for both scenes involved.
+      this.recomputeHost();
     });
 
 
@@ -155,6 +183,43 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       }
     });
 
+    // Multiplayer attack visuals (Part 1): one generic event, validated
+    // before anything touches the scene. A malformed packet is dropped
+    // silently (console.warn only) — it must never throw or corrupt
+    // state. The server allowlists the kind; this handler validates
+    // every number and point as well.
+    const isAttackPoint = (p) => p && typeof p === 'object'
+      && Number.isFinite(p.x) && Number.isFinite(p.y);
+    const malformed = (kind) => console.warn('[attackUpdate] malformed packet, dropped:', kind);
+
+    this.socket.on('attackUpdate', (data) => {
+      if (!data || typeof data !== 'object') return;
+      const player = this.otherPlayers[data.id];
+      if (!player) return;
+      switch (data.kind) {
+        case 'sword':
+          if (!isAttackPoint(data.start) || !isAttackPoint(data.direction)
+            || !Number.isFinite(data.angle) || typeof data.wave !== 'boolean') { malformed('sword'); return; }
+          player.ghostSword(data);
+          break;
+        case 'whip':
+          if (!isAttackPoint(data.start) || !isAttackPoint(data.direction)
+            || !Number.isFinite(data.angle)) { malformed('whip'); return; }
+          player.ghostWhip(data);
+          break;
+        case 'darkorb':
+          if (!isAttackPoint(data.start) || !isAttackPoint(data.velocity)) { malformed('darkorb'); return; }
+          player.ghostDarkOrb(data);
+          break;
+        case 'aurazap':
+          if (!isAttackPoint(data.target)) { malformed('aurazap'); return; }
+          player.ghostAuraZap(data);
+          break;
+        default:
+          console.warn('[attackUpdate] unknown kind, dropped:', data.kind);
+      }
+    });
+
     this.socket.on('playerchatUpdate', ({ id, message }) => {
       const player = this.otherPlayers[id];
       if (player) {
@@ -177,23 +242,20 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       this.scene.updateScoreBoard(data);
     });
 
+    // Part 2 — host-authoritative enemies. Replaces the old symmetric
+    // scaffolding (per-enemy enemyStateRequest from replicateEnemy,
+    // unvalidated direct setPosition, enemyDamageUpdate): there is now
+    // exactly one enemy-sync path, the host's batched broadcast below.
     this.socket.on('enemyStateUpdate', (data) => {
-      const { x, y, type, id, vx, vy, sceneKey } = data;
+      this.applyEnemyState(data);
+    });
 
-      if (this.scene.scene.key !== sceneKey) return;
+    this.socket.on('enemyHitUpdate', (data) => {
+      this.applyEnemyHit(data);
+    });
 
-      let enemy = this.otherEnemies[id];
-
-      if (!enemy) {
-        enemy = this.spawnEnemy(data);
-        this.otherEnemies[id] = enemy;
-        return;
-      }
-      enemy.setPosition(x, y);
-      if (enemy.body) {
-        enemy.body.velocity.x = vx;
-        enemy.body.velocity.y = vy;
-      }
+    this.socket.on('enemyShotUpdate', (data) => {
+      this.applyEnemyShot(data);
     });
 
     this.socket.on('pvpDamageUpdate', ({id, data}) => {
@@ -205,13 +267,6 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       const {killer, money} = data;
       this.scene.player.updateMoney(money);
     })
-    
-    this.socket.on('enemyDamageUpdate', (info) => {
-      const { id, player, damage, stagger, duration } = info;
-      if (this.otherEnemies[id]) {
-        this.otherEnemies[id].applyDamage?.(this.scene.player, damage, stagger, duration);
-      }
-    });
 
     this.socket.on('spawnCardUpdate', ({ id, cardData }) => {
       const player = this.otherPlayers[id];
@@ -229,6 +284,44 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     this.otherPlayers[id] = ghost;
   }
 
+  // ---- Host election (Part 2, deterministic, client-side) ----
+  // The host for a level is the lowest socket id among the players
+  // whose data.scene matches my current scene key. Every client sees
+  // the same ids and the same scene fields, so every client elects the
+  // same host with no server coordination. Alone in a level (or
+  // offline — no socket / not connected) I am the host, so solo play
+  // is exactly the old local simulation. GhostPlayer stores the last
+  // synced data as myData, which is where the scene field lives.
+  isHost() {
+    const socket = this.socket;
+    if (!socket || !socket.connected || !socket.id) return true;
+    const sceneKey = this.scene?.scene?.key;
+    if (!sceneKey) return true;
+    let host = socket.id;
+    for (const id in this.otherPlayers) {
+      const p = this.otherPlayers[id];
+      if (p?.myData?.scene === sceneKey && id < host) host = id;
+    }
+    return host === socket.id;
+  }
+
+  // Re-run the election after anything that can change it. On a
+  // transition, onHostChanged wakes or sleeps the local enemies (see
+  // below). First call just records it — there is no previous host
+  // to transition from.
+  recomputeHost() {
+    const nowHost = this.isHost();
+    if (this._isHost === undefined) {
+      this._isHost = nowHost;
+      return;
+    }
+    if (nowHost === this._isHost) return;
+    this._isHost = nowHost;
+    console.log('[host] ' + (nowHost ? 'I am now host' : 'I am no longer host')
+      + ' for ' + (this.scene?.scene?.key ?? '?'));
+    this.onHostChanged?.(nowHost);
+  }
+
   refreshScene(scene) {
     this.scene = scene;
 
@@ -240,27 +333,281 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
 
       this.otherPlayers[id] = new GhostPlayer(scene, id, data);
     }
+
+    // New scene, new election — and the enemy broadcast state (delta
+    // snapshot) belongs to the old scene, so reset it. The per-level
+    // enemy registry lives on the scene's SpawnManager, which is
+    // already the new one by the time this runs.
+    this._enemyLastSent = null;
+    this._enemyTick = 0;
+    this.recomputeHost();
   }
 
-  spawnEnemy(info) {
-    const { x, y, type, health, id, sceneKey } = info;
-    if (!this.scene || !this.scene.spawnManager || (this.scene.scene.key != sceneKey)) return;
-    let enemy;
+  // ---- Host-authoritative enemies (Part 2) ----
 
-    switch (type) {
-      case 'duck':
-        //enemy = this.scene.spawnManager.spawnDuck(x, y, health, true);
-        break;
-      case 'bat':
-        enemy = this.scene.spawnManager.spawnBat(x, y, health, true, id);
-        break;
-      case 'sunMan':
-        enemy = this.scene.spawnManager.spawnSunMan(x, y, health, true, id);
-        break;
-      default:
-        console.warn('Unknown Enemy Type: ', type);
+  // Host broadcast, ~12Hz, volatile. One batched packet per tick:
+  // { sceneKey, full, enemies: [{ netId, type, x, y, vx, vy, hp,
+  // alive }] }. Delta-compressed against the last sent snapshot —
+  // only entries that moved, changed HP, or changed liveness go out
+  // — with a full snapshot every ~1s so a client that missed packets
+  // re-converges and despawns can be detected. Bosses (and freshly
+  // dead enemies, whose death must reach every client exactly once)
+  // go first; the tick is capped at 48 entries. Non-hosts never emit.
+  // Positions/velocities are rounded ints on the wire; HP rides
+  // unrounded (damage is fractional once money scaling applies).
+  // No per-tick allocation beyond the entry objects themselves — the
+  // registry is iterated in place, two passes, no sort, no spread.
+  broadcastEnemyState() {
+    if (!this.isHost()) return;
+    const socket = this.socket;
+    if (!socket?.connected) return;
+    const sm = this.scene?.spawnManager;
+    if (!sm?.netEnemies?.size) return;
+    const sceneKey = this.scene.scene.key;
+    this._enemyTick = (this._enemyTick ?? 0) + 1;
+    const full = this._enemyTick % ENEMY_FULL_EVERY_TICKS === 1;
+    const last = this._enemyLastSent ?? new Map();
+    const next = new Map(last);
+    const entries = [];
+    const isBoss = (e) => e.netType === 'boss' || e.netType === 'boss2'
+      || e.netType === 'miniboss';
+    // Three passes, in priority order: deaths first (a death must
+    // never be dropped by the cap), then bosses (their HP drives
+    // phases and the boss bar), then everything else.
+    for (let pass = 0; pass < 3 && entries.length < ENEMY_MAX_ENTRIES; pass++) {
+      for (const enemy of sm.netEnemies.values()) {
+        if (entries.length >= ENEMY_MAX_ENTRIES) break;
+        if (!enemy.netId) continue;
+        const dead = enemy.dead || !enemy.active;
+        if (pass === 0 && !dead) continue;
+        if (pass === 1 && (dead || !isBoss(enemy))) continue;
+        if (pass === 2 && (dead || isBoss(enemy))) continue;
+        const entry = this._enemyEntry(enemy, full);
+        if (!entry) continue; // already-reported death, nothing new
+        if (!full && !this._enemyChanged(entry, last.get(entry.netId))) continue;
+        entries.push(entry);
+        next.set(entry.netId, entry);
+      }
     }
-    return enemy;
+    if (!entries.length) return;
+    this._enemyLastSent = next;
+    socket.volatile.emit('enemyStateRequest', { sceneKey, full, enemies: entries });
+  }
+
+  // One registry enemy → one wire entry, or null when there is
+  // nothing new to say (a death already reported). A dead entry is
+  // marked sent here, so it is built — and therefore marked — only
+  // when it is actually queued for broadcast. Full snapshots
+  // re-send deaths even when already reported: a client that joined
+  // AFTER the death never saw the delta, and without the re-send
+  // its locally-spawned copy of that enemy would stay alive forever
+  // as a zombie the host doesn't know about.
+  _enemyEntry(enemy, force = false) {
+    if (enemy.dead || !enemy.active) {
+      if (enemy._netDeathSent && !force) return null;
+      enemy._netDeathSent = true;
+      return {
+        netId: enemy.netId, type: enemy.netType,
+        x: Math.round(enemy.x), y: Math.round(enemy.y),
+        vx: 0, vy: 0, hp: 0, alive: false,
+      };
+    }
+    const v = enemy.body?.velocity;
+    return {
+      netId: enemy.netId, type: enemy.netType,
+      x: Math.round(enemy.x), y: Math.round(enemy.y),
+      vx: Math.round(v?.x ?? 0), vy: Math.round(v?.y ?? 0),
+      hp: enemy.health, alive: true,
+    };
+  }
+
+  // Delta test: 1px of drift and 5px/s of velocity are noise at
+  // 12Hz; HP, liveness and type changes always send.
+  _enemyChanged(entry, prev) {
+    if (!prev) return true;
+    return entry.alive !== prev.alive || entry.hp !== prev.hp
+      || entry.type !== prev.type
+      || Math.abs(entry.x - prev.x) > 1 || Math.abs(entry.y - prev.y) > 1
+      || Math.abs(entry.vx - prev.vx) > 5 || Math.abs(entry.vy - prev.vy) > 5;
+  }
+
+  // Client apply (Part 2). Everything is validated first — wrong
+  // scene, non-object, over-long array, unknown type, or any
+  // non-finite / out-of-range number drops that entry (a malformed
+  // packet must never throw or corrupt state). For each entry: find
+  // the local enemy by netId, or spawn a remote puppet; convert a
+  // local enemy to a puppet on first sight; lerp toward the host
+  // position; apply host HP; a dead entry runs the LOCAL death path
+  // (die() pays the local player and drops local loot — that is how
+  // rewards stay per player, each client granting its own from the
+  // shared death event; boss rematch re-arm is host-gated inside
+  // die(), so a puppet death never re-spawns locally). A live entry
+  // for a dead local enemy re-activates it as a puppet — that is the
+  // host-driven respawn/rematch path.
+  applyEnemyState(data) {
+    if (!data || typeof data !== 'object') return;
+    if (data.id === this.socket?.id) return;
+    if (typeof data.sceneKey !== 'string'
+      || data.sceneKey !== this.scene?.scene?.key) return;
+    if (!Array.isArray(data.enemies) || data.enemies.length > 64) return;
+    if (this.isHost()) return; // the host never applies — it IS the authority
+    const sm = this.scene?.spawnManager;
+    if (!sm) return;
+    const now = this.scene.time.now;
+    const seen = new Set();
+    for (const e of data.enemies) {
+      if (!e || typeof e !== 'object') continue;
+      if (typeof e.netId !== 'string' || e.netId.length > 64) continue;
+      if (!ENEMY_TYPES.has(e.type)) continue;
+      if (!Number.isFinite(e.x) || !Number.isFinite(e.y)
+        || !Number.isFinite(e.vx) || !Number.isFinite(e.vy)
+        || !Number.isFinite(e.hp)) continue;
+      if (Math.abs(e.x) > 100000 || Math.abs(e.y) > 100000
+        || Math.abs(e.vx) > 5000 || Math.abs(e.vy) > 5000) continue;
+      if (typeof e.alive !== 'boolean') continue;
+      seen.add(e.netId);
+      let enemy = sm.netEnemies.get(e.netId);
+      if (!enemy || enemy.dead || !enemy.active) {
+        const spawned = sm.spawnRemote(e.type, e.x, e.y, Math.max(e.hp, 1), e.netId);
+        enemy = Array.isArray(spawned) ? sm.netEnemies.get(e.netId) : spawned;
+        if (!enemy) continue;
+      }
+      enemy._netLastSeen = now;
+      if (!enemy.isRemote) enemy.setRemote(true);
+      enemy.setLerpPosition(e.x, e.y);
+      if (!enemy.createdHealthBar) enemy.createHealthBar();
+      if (e.hp <= 0 || !e.alive) {
+        if (!enemy.dead) {
+          enemy.health = 0;
+          if (this.scene.player) enemy.die(this.scene.player);
+        }
+      } else if (e.hp !== enemy.health) {
+        enemy.health = e.hp;
+      }
+    }
+    // Full snapshot: a puppet unseen for 2s+ is gone on the host
+    // (despawned) — deactivate it. The grace covers spawn timing
+    // skew, and the length guard covers a truncated snapshot (a
+    // capped full snapshot must never mass-despawn real enemies).
+    if (data.full === true && data.enemies.length < ENEMY_MAX_ENTRIES) {
+      for (const enemy of sm.netEnemies.values()) {
+        if (!enemy.isRemote || !enemy.active || enemy.dead) continue;
+        if (seen.has(enemy.netId)) continue;
+        if (now - (enemy._netLastSeen ?? 0) < 2000) continue;
+        enemy.deactivate();
+      }
+    }
+  }
+
+  // Host applies a routed hit (Part 2). Only the current host for
+  // this scene applies it; everyone else (including the hitter's own
+  // client, which already flashed) drops it. Validated: netId is a
+  // string, damage is a finite number capped at 50 per hit, knockback
+  // and stun are finite (stun ≤ 2000ms), and the enemy exists, is
+  // live, and is local to the host. The sender must be in my scene
+  // if I know them — a hit from another level is stale. The result
+  // rides the next state broadcast.
+  applyEnemyHit(data) {
+    if (!data || typeof data !== 'object') return;
+    if (data.id === this.socket?.id) return;
+    if (!this.isHost()) return;
+    const sender = this.otherPlayers[data.id];
+    if (sender && sender.myData?.scene !== this.scene?.scene?.key) return;
+    if (typeof data.netId !== 'string') return;
+    if (!Number.isFinite(data.damage) || data.damage <= 0 || data.damage > 50) return;
+    if (!Number.isFinite(data.kx) || !Number.isFinite(data.ky)) return;
+    if (data.stun !== undefined
+      && (!Number.isFinite(data.stun) || data.stun < 0 || data.stun > 2000)) return;
+    const enemy = this.scene?.spawnManager?.netEnemies.get(data.netId);
+    if (!enemy || enemy.dead || !enemy.active || enemy.isRemote) return;
+    enemy.TakeDamage(data.kx, data.ky, data.damage, data.stun ?? 300);
+  }
+
+  // Host-fired enemy shot (Part 2). Non-hosts spawn a REAL Bullet in
+  // softBulletGroup from the event — local physics, so it can hurt
+  // the local player; that is how enemy fire stays dangerous for
+  // everyone. The host already has its own local bullet and never
+  // applies its own broadcast. Validated like the rest (finite
+  // numbers, sane ranges, kind allowlist), and capped at 60 live
+  // soft bullets so a lag burst can't pile up shots on a phone.
+  applyEnemyShot(data) {
+    if (!data || typeof data !== 'object') return;
+    if (data.id === this.socket?.id) return;
+    if (this.isHost()) return;
+    if (data.kind !== 'fireball') return;
+    const sm = this.scene?.spawnManager;
+    if (!sm?.softBulletGroup) return;
+    const s = data.start, v = data.velocity;
+    if (!s || !v || typeof s !== 'object' || typeof v !== 'object') return;
+    if (!Number.isFinite(s.x) || !Number.isFinite(s.y)
+      || !Number.isFinite(v.x) || !Number.isFinite(v.y)) return;
+    if (Math.abs(s.x) > 100000 || Math.abs(s.y) > 100000
+      || Math.abs(v.x) > 2000 || Math.abs(v.y) > 2000) return;
+    if (sm.softBulletGroup.getChildren().length > 60) return;
+    if (!this.scene.anims.get('fireball')) {
+      this.scene.anims.create({
+        key: 'fireball',
+        frames: this.scene.anims.generateFrameNumbers('fireballsheet', { start: 0, end: 2 }),
+        frameRate: 8,
+        repeat: -1,
+      });
+    }
+    const bullet = new Bullet(this.scene, s.x, s.y, 'fireballsheet');
+    sm.softBulletGroup.add(bullet);
+    bullet.play('fireball');
+    bullet.body.velocity.set(v.x, v.y);
+    this.scene.time.delayedCall(4000, () => {
+      if (bullet.active) bullet.destroy();
+    });
+  }
+
+  // Host transition (Part 2 — handoff). Losing host: live enemies
+  // become puppets immediately; the new host's next broadcast takes
+  // over their positions. Gaining host: puppets wake into AI-driven
+  // enemies at their last known position/HP (setRemote(false) resets
+  // the attack timers — patrol timers reset is acceptable), the
+  // delta baseline is cleared so the first tick sends a full
+  // snapshot from the new authority, and dead bosses with their
+  // bounty flag set get their rematch trigger re-armed (their die()
+  // only armed it while a host).
+  onHostChanged(nowHost) {
+    const sm = this.scene?.spawnManager;
+    if (!sm?.netEnemies) return;
+    if (nowHost) {
+      this._enemyLastSent = null;
+      this._enemyTick = 0;
+      for (const enemy of sm.netEnemies.values()) {
+        if (enemy.isRemote && enemy.active && !enemy.dead) enemy.setRemote(false);
+      }
+      this.rearmBossRematches();
+    } else {
+      for (const enemy of sm.netEnemies.values()) {
+        if (!enemy.isRemote && enemy.active && !enemy.dead) enemy.setRemote(true);
+      }
+    }
+  }
+
+  rearmBossRematches() {
+    const sm = this.scene?.spawnManager;
+    if (!sm) return;
+    for (const enemy of sm.netEnemies.values()) {
+      if (!enemy.dead || enemy.homeX === undefined) continue;
+      let flag = false;
+      let spawnFn = null;
+      if (enemy.netType === 'boss') {
+        flag = !!GameManager.flags.bossRewardPaid;
+        spawnFn = () => sm.spawnBoss(enemy.homeX, enemy.homeY);
+      } else if (enemy.netType === 'boss2') {
+        flag = !!GameManager.flags.boss2RewardPaid;
+        spawnFn = () => sm.spawnBoss2(enemy.homeX, enemy.homeY);
+      } else if (enemy.netType === 'miniboss') {
+        flag = !!GameManager.flags.minibossRewardPaid;
+        spawnFn = () => sm.spawnMiniboss(enemy.homeX, enemy.homeY);
+      } else {
+        continue;
+      }
+      if (flag) enemy.armRematchTrigger(enemy.homeX, enemy.homeY, spawnFn);
+    }
   }
 
 }

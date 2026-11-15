@@ -187,6 +187,98 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Part 1 of multiplayer combat sync: generic attack visuals.
+  // Client emits attackRequest {kind, ...params}; the server only checks
+  // the kind is allowlisted and the payload is an object, then broadcasts
+  // attackUpdate {id, kind, ...params}. Deep validation (finite numbers,
+  // capped arrays) lives on the receiving client — a malformed packet is
+  // dropped there and can never throw or corrupt state. Known fields per
+  // kind are picked so arbitrary junk from a client is not forwarded.
+  const ATTACK_FIELDS = {
+    sword: ['start', 'direction', 'angle', 'wave'],
+    whip: ['start', 'direction', 'angle'],
+    darkorb: ['start', 'velocity'],
+    aurazap: ['target'],
+  };
+
+  socket.on('attackRequest', (payload) => {
+    if (!players[socket.id]) return;
+    if (!payload || typeof payload !== 'object') return;
+    const fields = ATTACK_FIELDS[payload.kind];
+    if (!fields) return;
+    const validated = { kind: payload.kind };
+    for (const field of fields) {
+      if (field in payload) validated[field] = payload[field];
+    }
+    socket.broadcast.emit('attackUpdate', { id: socket.id, ...validated });
+  });
+
+  // Part 2 of multiplayer combat sync: host-authoritative enemies.
+  // Same pattern as attackRequest (players[socket.id] guard,
+  // XRequest in → XUpdate broadcast out). The server only checks the
+  // outer shape and picks known fields — deep validation (finite
+  // numbers, capped arrays, allowlisted types, per-hit damage cap)
+  // lives on the receiving client, and only the elected host applies
+  // hits. A malformed packet is dropped here or there and can never
+  // throw or corrupt state.
+  //
+  // enemyStateRequest { sceneKey, full, enemies: [{ netId, type, x,
+  // y, vx, vy, hp, alive }] } — batched host broadcast, ~12Hz,
+  // delta-compressed by the host, full snapshot ~1s.
+  const ENEMY_STATE_FIELDS = ['netId', 'type', 'x', 'y', 'vx', 'vy', 'hp', 'alive'];
+  socket.on('enemyStateRequest', (payload) => {
+    if (!players[socket.id]) return;
+    if (!payload || typeof payload !== 'object') return;
+    if (typeof payload.sceneKey !== 'string') return;
+    if (!Array.isArray(payload.enemies) || payload.enemies.length > 48) return;
+    const enemies = [];
+    for (const entry of payload.enemies) {
+      if (!entry || typeof entry !== 'object') continue;
+      const validated = {};
+      for (const field of ENEMY_STATE_FIELDS) {
+        if (field in entry) validated[field] = entry[field];
+      }
+      enemies.push(validated);
+    }
+    socket.broadcast.emit('enemyStateUpdate', {
+      id: socket.id,
+      sceneKey: payload.sceneKey,
+      full: payload.full === true,
+      enemies,
+    });
+  });
+
+  // enemyHitRequest { netId, damage, kx, ky, stun } — a non-host
+  // routes a weapon hit on a puppet to the host, which applies it.
+  socket.on('enemyHitRequest', (payload) => {
+    if (!players[socket.id]) return;
+    if (!payload || typeof payload !== 'object') return;
+    if (typeof payload.netId !== 'string') return;
+    socket.broadcast.emit('enemyHitUpdate', {
+      id: socket.id,
+      netId: payload.netId,
+      damage: payload.damage,
+      kx: payload.kx,
+      ky: payload.ky,
+      stun: payload.stun,
+    });
+  });
+
+  // enemyShotRequest { kind, start: {x, y}, velocity: {x, y} } — a
+  // host emits each enemy projectile so non-hosts spawn the same
+  // fireball locally. Only 'fireball' exists today.
+  socket.on('enemyShotRequest', (payload) => {
+    if (!players[socket.id]) return;
+    if (!payload || typeof payload !== 'object') return;
+    if (payload.kind !== 'fireball') return;
+    socket.broadcast.emit('enemyShotUpdate', {
+      id: socket.id,
+      kind: payload.kind,
+      start: payload.start,
+      velocity: payload.velocity,
+    });
+  });
+
   socket.on('highScoreRequest', async (score) => {
     if (score) {
       const { level, time, player } = score;

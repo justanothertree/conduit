@@ -1,6 +1,7 @@
 import { changeCollision } from "../myFunctions.js";
 import AuraSprite from "../weapons/auraSprite.js";
 import ShurikanProjectile from "../weapons/shurikanProjectile.js";
+import ZapSprite from "../weapons/zapSprite.js";
 import ChatBubble from "./chatBubble.js";
 import { getRank } from "./RankSystem.js";
 
@@ -315,6 +316,19 @@ export default class GhostPlayer extends Phaser.GameObjects.Container {
 
 
   destroy() {
+    // Ghost attack FX live on the scene (not on this container) and
+    // self-destroy on a timer — but a player leaving mid-swing must not
+    // leave a stale sprite behind, so destroy any still tracked here.
+    // A ZapSprite's own deactivate timer is removed first: it would
+    // otherwise fire after the sprite is destroyed.
+    if (this._ghostFx?.length) {
+      for (const fx of this._ghostFx) {
+        if (!fx) continue;
+        if (fx.deactivateTimer) this.scene?.time?.removeEvent(fx.deactivateTimer);
+        if (fx.active) fx.destroy();
+      }
+      this._ghostFx = [];
+    }
     if (this.meditateEmitter) {
       this.meditateEmitter.stop();
       this.meditateEmitter.destroy();
@@ -322,13 +336,178 @@ export default class GhostPlayer extends Phaser.GameObjects.Container {
     super.destroy();
   }
 
+  // --- Ghost attack visuals (Part 1, display-only) -----------------------
+  // Every method renders another player's attack at ~0.5 alpha, never
+  // joins weaponGroup or any attackable overlap, never deals damage, and
+  // destroys itself after its duration. Anim keys are created here if the
+  // local player never equipped the weapon (anims are per-scene, and the
+  // weapon constructors only create them for the owner).
+  _trackGhostFx(obj) {
+    (this._ghostFx ??= []).push(obj);
+    return obj;
+  }
+
+  _destroyGhostFx(obj) {
+    if (!obj) return;
+    if (obj.deactivateTimer) this.scene?.time?.removeEvent(obj.deactivateTimer);
+    if (obj.active) obj.destroy();
+    const i = this._ghostFx?.indexOf(obj);
+    if (i >= 0) this._ghostFx.splice(i, 1);
+  }
+
+  _destroyGhostFxAfter(obj, ms) {
+    this.scene.time.delayedCall(ms, () => this._destroyGhostFx(obj));
+  }
+
+  _ensureGhostAnim(key, create) {
+    if (!this.scene.anims.get(key)) create();
+  }
+
+  ghostSword({ start, direction, angle, wave }) {
+    const scene = this.scene;
+    if (!scene?.anims) return;
+    this._ensureGhostAnim('sword', () => scene.anims.create({
+      key: 'sword',
+      defaultTextureKey: 'sword',
+      duration: 300,
+      frames: [{ frame: 0 }, { frame: 1 }, { frame: 2 }, { frame: 2 }, { frame: 3 }, { frame: 4 }, { frame: 5 }],
+    }));
+    // Local sword sits 70px out from the player along the aim direction.
+    const x = start.x + direction.x * 70;
+    const y = start.y + direction.y * 70;
+    const sword = scene.add.sprite(x, y, 'sword')
+      .setScale(0.24).setAngle(angle).setDepth(101).setAlpha(0.5);
+    sword.play('sword');
+    sword.setFlipY(angle > 90 || angle < -90);
+    this._trackGhostFx(sword);
+    this._destroyGhostFxAfter(sword, 300);
+
+    if (wave) {
+      // A real SwordWave is a WeaponProjectile (weaponGroup + damage), so
+      // the ghost wave is a plain sprite tweened along the aim line at
+      // the real wave's 400 px/s for its 600ms life — no physics, no hit.
+      this._ensureGhostAnim('swordwave', () => scene.anims.create({
+        key: 'swordwave',
+        defaultTextureKey: 'swordwave',
+        duration: 200,
+        repeat: -1,
+        frames: [{ frame: 0 }, { frame: 1 }],
+      }));
+      const waveSprite = scene.add.sprite(x, y, 'swordwave')
+        .setScale(0.11).setAngle(angle).setDepth(101).setAlpha(0.5);
+      waveSprite.play('swordwave');
+      waveSprite.setFlipY(angle > 90 || angle < -90);
+      this._trackGhostFx(waveSprite);
+      scene.tweens.add({
+        targets: waveSprite,
+        x: x + direction.x * 240,
+        y: y + direction.y * 240,
+        duration: 600,
+        ease: 'Linear',
+      });
+      this._destroyGhostFxAfter(waveSprite, 600);
+    }
+  }
+
+  ghostWhip({ start, direction, angle }) {
+    const scene = this.scene;
+    if (!scene?.anims) return;
+    this._ensureGhostAnim('whip', () => scene.anims.create({
+      key: 'whip',
+      defaultTextureKey: 'whip',
+      duration: 150,
+      frames: [{ frame: 0 }, { frame: 1 }, { frame: 2 }, { frame: 3 }, { frame: 4 }],
+    }));
+    // Local whip sits 15px out along the aim direction; the grapple that
+    // follows is movement, not an attack visual, so the ghost shows only
+    // the 250ms flick.
+    const whip = scene.add.sprite(start.x + direction.x * 15, start.y + direction.y * 15, 'whip')
+      .setScale(0.48).setOrigin(0, 0.5).setAngle(angle).setDepth(101).setAlpha(0.5);
+    whip.play('whip');
+    whip.setFlipY(angle > 90 || angle < -90);
+    this._trackGhostFx(whip);
+    this._destroyGhostFxAfter(whip, 250);
+  }
+
+  ghostDarkOrb({ start, velocity }) {
+    const scene = this.scene;
+    if (!scene?.anims) return;
+    this._ensureGhostAnim('darkorb', () => scene.anims.create({
+      key: 'darkorb',
+      frames: scene.anims.generateFrameNumbers('darkorb', { start: 0, end: 3 }),
+      frameRate: 10,
+      repeat: -1,
+    }));
+    // A real DarkOrbProjectile needs a pointer (its preUpdate steers
+    // toward it every frame) and joins weaponGroup with a damage tick, so
+    // the ghost orb is a plain sprite tweened straight ahead instead:
+    // the real orb steers at 200 px/s, so 2.5s of flight is 500px.
+    const orb = scene.add.sprite(start.x, start.y, 'darkorb')
+      .setScale(0.35).setDepth(101).setAlpha(0.5);
+    orb.play('darkorb');
+    this._trackGhostFx(orb);
+    const len = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y) || 1;
+    scene.tweens.add({
+      targets: orb,
+      x: start.x + (velocity.x / len) * 500,
+      y: start.y + (velocity.y / len) * 500,
+      duration: 2500,
+      ease: 'Linear',
+    });
+    scene.tweens.add({ targets: orb, angle: 360, duration: 2000, repeat: -1, ease: 'Linear' });
+    scene.tweens.add({ targets: orb, scaleX: 0.45, scaleY: 0.45, duration: 2500, ease: 'Linear' });
+    // Match the real orb's 2.5s lifetime, then fade out instead of
+    // detonating (no detonation event in Part 1).
+    scene.time.delayedCall(2500, () => {
+      if (!orb.active) return;
+      scene.tweens.add({
+        targets: orb,
+        alpha: 0,
+        duration: 200,
+        ease: 'Linear',
+        onComplete: () => this._destroyGhostFx(orb),
+      });
+    });
+  }
+
+  ghostAuraZap({ target }) {
+    const scene = this.scene;
+    if (!scene) return;
+    // ZapSprite draws a line from a player to a target object; the ghost
+    // passes a plain {x, y, active: true} endpoint — the remote target
+    // may not exist on this client, so coordinates are all we send.
+    // Its own 200ms deactivate timer is replaced by our destroy timer
+    // (deactivate only hides; the ghost sprite must be destroyed).
+    const fakeTarget = { x: target.x, y: target.y, active: true };
+    const zap = new ZapSprite(scene, this.x, this.y, this, fakeTarget);
+    zap.setAlpha(0.5);
+    zap.setDepth(101);
+    zap.init(this, fakeTarget);
+    if (zap.deactivateTimer) scene.time.removeEvent(zap.deactivateTimer);
+    this._trackGhostFx(zap);
+    this._destroyGhostFxAfter(zap, 220);
+  }
+
   ghostShurikan(shotInfo) {
+    if (!shotInfo || typeof shotInfo !== 'object') return;
     const { start, direction } = shotInfo;
+    // Untrusted network data: drop a malformed throw instead of spawning
+    // a NaN-velocity projectile or throwing here.
+    if (!start || !direction || !Number.isFinite(start.x) || !Number.isFinite(start.y)
+      || !Number.isFinite(direction.x) || !Number.isFinite(direction.y)) return;
     const speed = 1000;
+
+    // Chain jumps: the sender's chain count rides the throw (capped 0-5);
+    // the ghost projectile chains against THIS client's local enemies via
+    // the visual-only path in ShurikanProjectile.enemyHit.
+    const chain = Number.isInteger(shotInfo.chain)
+      ? Phaser.Math.Clamp(shotInfo.chain, 0, 5) : 0;
+    const targets = Number.isInteger(shotInfo.targets)
+      ? Phaser.Math.Clamp(shotInfo.targets, 1, 3) : 3;
 
     // Scalar multiply — no per-shot Vector2 allocation (same pattern as
     // the projectile enemyHit paths). setVelocity only reads the numbers.
-    const shurikan = new ShurikanProjectile(this.scene, start.x, start.y, this.scene.player, null, 0, 1, 3, true);
+    const shurikan = new ShurikanProjectile(this.scene, start.x, start.y, this.scene.player, null, chain, 1, targets, true);
     shurikan.setVelocity(direction.x * speed, direction.y * speed);
     shurikan.setAlpha(.5);
     // Multishot fan: the sender includes the extra velocities, so the
@@ -340,7 +519,7 @@ export default class GhostPlayer extends Phaser.GameObjects.Container {
     const extras = Array.isArray(shotInfo.extras) ? shotInfo.extras.slice(0, 3) : [];
     for (const ev of extras) {
       if (!ev || !Number.isFinite(ev.x) || !Number.isFinite(ev.y)) continue;
-      const extra = new ShurikanProjectile(this.scene, start.x, start.y, this.scene.player, null, 0, 1, 3, true);
+      const extra = new ShurikanProjectile(this.scene, start.x, start.y, this.scene.player, null, chain, 1, targets, true);
       extra.setVelocity(ev.x, ev.y);
       extra.setAlpha(.5);
     }

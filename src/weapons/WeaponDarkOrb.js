@@ -26,6 +26,10 @@ export default class WeaponDarkOrb extends WeaponBase {
 
         const { start, vector } = this.calculateShot(pointer, 300);
 
+        // Multiplayer: other players render this orb display-only.
+        // vector is the orb's velocity (calculateShot scale 300).
+        this.emitAttack('darkorb', { start, velocity: vector });
+
         this.projectile = new DarkOrbProjectile(this.scene, start.x, start.y, this.player, this, pointer);
         this.scene.weaponGroup.add(this.projectile);
         this.projectile.allowGravity = false;

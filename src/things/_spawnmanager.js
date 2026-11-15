@@ -31,6 +31,82 @@ export default class SpawnManager {
         this.player = player;
         this.sceneKey = scene.scene.key;
         this.enemyCounter = 0;
+        // Part 2 — scene-level netId → enemy registry. Built at spawn
+        // time (registerNetEnemy), read by the host's broadcast tick
+        // and by the client's state-apply path. Scene-scoped: a new
+        // scene gets a new SpawnManager, so no stale cross-scene ids.
+        this.netEnemies = new Map();
+    }
+
+    // Stable enemy identity (Part 2): the netId derives from the spawn
+    // point, so respawns at the same point get the same id on every
+    // client and pooled reuse at a different point gets that point's
+    // id. Assign on EVERY spawn/activation, never on construction —
+    // the constructor doesn't know the spawn point. Also stamps
+    // isRemote (spawn functions pass it through) and netType, the
+    // canonical lowercase wire type. netIdOverride is the host's id
+    // for a puppet (spawnRemote): a re-activated enemy must keep the
+    // host's id, NOT derive one from its current position — it has
+    // moved since it spawned, and a derived id would disagree with
+    // the host and duplicate the puppet. The previous key for the
+    // same enemy is dropped first, or one pooled enemy would
+    // broadcast twice (once per key).
+    registerNetEnemy(enemy, type, x, y, isRemote = false, netIdOverride = null) {
+        if (!enemy) return null;
+        if (enemy.netId && this.netEnemies.get(enemy.netId) === enemy) {
+            this.netEnemies.delete(enemy.netId);
+        }
+        const netId = netIdOverride ?? `${type}:${Math.round(x)}:${Math.round(y)}`;
+        enemy.netId = netId;
+        enemy.netType = type;
+        if (!enemy.name) enemy.name = type;
+        enemy.isRemote = isRemote;
+        this.netEnemies.set(netId, enemy);
+        return enemy;
+    }
+
+    // Spawn (or re-activate from the pool) a remote puppet for a host
+    // state entry whose netId has no live local enemy. Routes through
+    // the normal spawn functions with isRemote=true, so pooled reuse,
+    // hitboxes and init all behave — only the AI stays off (see
+    // BaseEnemy.setRemote / the per-class preUpdate gates). The host's
+    // netId is threaded through as `id` so the puppet registers under
+    // exactly the id the host broadcasts.
+    spawnRemote(type, x, y, hp, netId = null) {
+        switch (type) {
+            case 'duck': return this.spawnDuck(x, y, null, hp, true, netId);
+            case 'bat': return this.spawnBat(x, y, null, hp, true, netId);
+            case 'sunman': return this.spawnSunMan(x, y, null, hp, true, netId);
+            case 'turret': return this.spawnTurret(x, y, null, hp, true, netId);
+            case 'charger': return this.spawnCharger(x, y, null, hp, true, netId);
+            case 'bomber': return this.spawnBomber(x, y, null, hp, true, netId);
+            case 'spitter': return this.spawnSpitter(x, y, null, hp, true, netId);
+            // Swarmers are one tilemap object for THREE enemies: a pack
+            // spawn centered on a member's current position would give
+            // the siblings wrong ids. Spawn one member, under the
+            // entry's exact netId, per host entry instead.
+            case 'swarmer': return this.spawnSwarmerMember(netId, x, y, hp);
+            case 'boss': return this.spawnBoss(x, y, null, true, netId);
+            case 'boss2': return this.spawnBoss2(x, y, null, true, netId);
+            case 'miniboss': return this.spawnMiniboss(x, y, null, true, netId);
+            default: return null;
+        }
+    }
+
+    // One swarmer pack member, for the remote path only (see
+    // spawnRemote): the local tilemap path still uses spawnSwarmer's
+    // pack of three.
+    spawnSwarmerMember(netId, x, y, hp = 3) {
+        let swarmer = this.swarmerGroup.getFirst(false);
+        if (swarmer && swarmer.activate(x, y, hp)) {
+            swarmer.init();
+        } else {
+            swarmer = new Swarmer(this.scene, x, y, hp);
+            this.swarmerGroup.add(swarmer);
+            swarmer.activate(x, y, hp);
+            swarmer.init();
+        }
+        return this.registerNetEnemy(swarmer, 'swarmer', x, y, true, netId);
     }
 
     setupGroups(scene) {
@@ -112,29 +188,35 @@ export default class SpawnManager {
         let bat = this.batGroup.getFirst(false);
 
         if (bat && bat.activate(x, y, health)) {
+            // isRemote must be set BEFORE init(): init() only starts
+            // the homing timer for local enemies.
+            bat.isRemote = isRemote;
             bat.init();
-            return bat;
+            return this.registerNetEnemy(bat, 'bat', x, y, isRemote, id);
         }
         // Create new if no usable bat
         bat = new Bat(this.scene, x, y, health);
         this.batGroup.add(bat);
+        bat.isRemote = isRemote;
         bat.init();
-        return bat;
+        return this.registerNetEnemy(bat, 'bat', x, y, isRemote, id);
     }
 
     spawnSunMan(x, y, obj, health = 3, isRemote = false, id = null) {
         let sunMan = this.sunmanGroup.getFirstDead(false);
 
         if (sunMan && sunMan.activate(x, y, health)) {
+            sunMan.isRemote = isRemote;
             sunMan.init();
-            return sunMan;
+            return this.registerNetEnemy(sunMan, 'sunman', x, y, isRemote, id);
         }
 
         // Create new if no usable bat
         sunMan = new SunMan(this.scene, x, y, health);
         this.sunmanGroup.add(sunMan);
+        sunMan.isRemote = isRemote;
         sunMan.init();
-        return sunMan;
+        return this.registerNetEnemy(sunMan, 'sunman', x, y, isRemote, id);
     }
 
 
@@ -147,6 +229,7 @@ export default class SpawnManager {
             }
         }
         this.respawn(duck, x, y, health, this.spawnDuck.bind(this))
+        if (duck) this.registerNetEnemy(duck, 'duck', x, y, isRemote, id);
 
         return duck;
     }
@@ -154,7 +237,7 @@ export default class SpawnManager {
     // Flowline boss: Conduit's first real boss (Boss class, 2-3 attack phases).
     // A per-run set piece guarding the arena — unlike regular ducks it does
     // not respawn.
-    spawnBoss(x, y, obj) {
+    spawnBoss(x, y, obj, isRemote = false, id = null) {
         const props = getProperty(obj);
         const health = props?.health ?? Boss.MAX_HEALTH;
         // Rematch: after the first kill the bounty flag is set, so any
@@ -168,14 +251,14 @@ export default class SpawnManager {
                 boss.activate(x, y, health, rematch);
             }
         }
-        return boss;
+        return this.registerNetEnemy(boss, 'boss', x, y, isRemote, id);
     }
 
     // World 1 boss: the Iron Warden (Boss2 class, 3 distinct phases —
     // sweep rows / burst+ring / pinwheel+slam). A per-run set piece
     // guarding the World 1 arena — unlike regular ducks it does not
     // respawn.
-    spawnBoss2(x, y, obj) {
+    spawnBoss2(x, y, obj, isRemote = false, id = null) {
         const props = getProperty(obj);
         const health = props?.health ?? Boss2.MAX_HEALTH;
         // Rematch: after the first kill the bounty flag is set, so any
@@ -189,14 +272,14 @@ export default class SpawnManager {
                 boss.activate(x, y, health, rematch);
             }
         }
-        return boss;
+        return this.registerNetEnemy(boss, 'boss2', x, y, isRemote, id);
     }
 
     // World 1 mini-boss: the Bombardier (Miniboss class, 2 phases —
     // bomb spreads, then aimed fans). A per-run set piece guarding the
     // antechamber before the Iron Warden — unlike regular bombers it does
     // not respawn.
-    spawnMiniboss(x, y, obj) {
+    spawnMiniboss(x, y, obj, isRemote = false, id = null) {
         const props = getProperty(obj);
         const health = props?.health ?? Miniboss.MAX_HEALTH;
         // Rematch: after the first kill the bounty flag is set, so any
@@ -210,7 +293,7 @@ export default class SpawnManager {
                 boss.activate(x, y, health, rematch);
             }
         }
-        return boss;
+        return this.registerNetEnemy(boss, 'miniboss', x, y, isRemote, id);
     }
 
     // World 1 checkpoint marker: records a per-run respawn point
@@ -286,7 +369,7 @@ export default class SpawnManager {
 
         if (turret && turret.activate(x, y, health)) {
             turret.init();
-            return turret;
+            return this.registerNetEnemy(turret, 'turret', x, y, isRemote, id);
         }
         // Create new if no usable turret
         turret = new Turret(this.scene, x, y, health);
@@ -297,7 +380,7 @@ export default class SpawnManager {
         // its 1.2s opening pause. Same order as the pooled path above.
         turret.activate(x, y, health);
         turret.init();
-        return turret;
+        return this.registerNetEnemy(turret, 'turret', x, y, isRemote, id);
     }
 
     // Flowline shielded charger: armored duck that dashes at the player
@@ -309,7 +392,7 @@ export default class SpawnManager {
 
         if (charger && charger.activate(x, y, health)) {
             charger.init();
-            return charger;
+            return this.registerNetEnemy(charger, 'charger', x, y, isRemote, id);
         }
         // Create new if no usable charger
         charger = new Charger(this.scene, x, y, health);
@@ -319,7 +402,7 @@ export default class SpawnManager {
         // opening pause.
         charger.activate(x, y, health);
         charger.init();
-        return charger;
+        return this.registerNetEnemy(charger, 'charger', x, y, isRemote, id);
     }
 
     // World 1 flying bomber: hovers above the fight and drops explosives
@@ -331,7 +414,7 @@ export default class SpawnManager {
 
         if (bomber && bomber.activate(x, y, health)) {
             bomber.init();
-            return bomber;
+            return this.registerNetEnemy(bomber, 'bomber', x, y, isRemote, id);
         }
         // Create new if no usable bomber
         bomber = new Bomber(this.scene, x, y, health);
@@ -341,7 +424,7 @@ export default class SpawnManager {
         // skipped its 1.5s opening pause.
         bomber.activate(x, y, health);
         bomber.init();
-        return bomber;
+        return this.registerNetEnemy(bomber, 'bomber', x, y, isRemote, id);
     }
 
     // World 1 swarmer pack: one tilemap object spawns a cluster of three
@@ -365,6 +448,10 @@ export default class SpawnManager {
                 swarmer.activate(x + dx, y, health);
                 swarmer.init();
             }
+            // Each pack member gets its own netId from its own spawn
+            // point — the host and the client both derive the same three
+            // ids from the one tilemap object.
+            this.registerNetEnemy(swarmer, 'swarmer', x + dx, y, isRemote);
             pack.push(swarmer);
         }
         return pack;
@@ -379,7 +466,7 @@ export default class SpawnManager {
 
         if (spitter && spitter.activate(x, y, health)) {
             spitter.init();
-            return spitter;
+            return this.registerNetEnemy(spitter, 'spitter', x, y, isRemote, id);
         }
         // Create new if no usable spitter
         spitter = new Spitter(this.scene, x, y, health);
@@ -389,7 +476,7 @@ export default class SpawnManager {
         // opening pause.
         spitter.activate(x, y, health);
         spitter.init();
-        return spitter;
+        return this.registerNetEnemy(spitter, 'spitter', x, y, isRemote, id);
     }
 
     spawnBullets(x, y, amount) {
@@ -452,6 +539,7 @@ export default class SpawnManager {
     }
 
     respawn(obj, x, y, health, spawnFunc) {
+        if (!obj) return;
         obj.once('die', () => {
             const checkDistanceTimer = this.scene.time.addEvent({
                 delay: 5000, // check every 1 second (adjust if you want)
@@ -462,6 +550,19 @@ export default class SpawnManager {
 
                     if (distance > 1200) {
                         this.scene.time.removeEvent(checkDistanceTimer);
+                        // Host-driven only (Part 2): a non-host's local
+                        // respawn would create an enemy the host doesn't
+                        // know about. The host respawns and its state
+                        // broadcast brings the puppet back on non-hosts.
+                        // Checked at fire time, not registration: if this
+                        // client BECOMES host while the timer is pending,
+                        // the respawn is legitimately theirs now. And if
+                        // a live enemy already holds this spawn point's
+                        // netId (host respawned first), don't duplicate it.
+                        if (!this.scene.network?.isHost()) return;
+                        const netId = `duck:${Math.round(x)}:${Math.round(y)}`;
+                        const existing = this.netEnemies.get(netId);
+                        if (existing && existing.active && !existing.dead) return;
                         spawnFunc(x, y, health);
                     }
                 },

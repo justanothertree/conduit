@@ -33,6 +33,5 @@ export default class SunMan extends BaseEnemy {
 
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
-        this.replicateEnemy();
     }
 }

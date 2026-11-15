@@ -62,6 +62,10 @@ export function playerSyncNetwork(player) {
     // we're connected again.
     player.network.socket.volatile.emit('playerSyncRequest', {
         data: {
+            // Scene key for per-level host election (Part 2): the host is
+            // the lowest socket id among players in this scene. Sent on
+            // every sync so a level change propagates within ~500ms.
+            scene: player.scene.scene.key,
             location: GameManager.location,
             name: GameManager.name,
             power: GameManager.power,

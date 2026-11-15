@@ -97,6 +97,8 @@ export default class Bomber extends BaseEnemy {
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
         if (this.dead || this.stunned) return;
+        // Remote puppet: no hover, no marker, no bomb telegraph.
+        if (this.isRemote) return;
         this.hover(time);
         // The shadow tracks the bomber's x and only shows while the player
         // is in drop range — the same window the bomber can actually
@@ -149,6 +151,7 @@ export default class Bomber extends BaseEnemy {
     // is walls: false, like the turret's), so the dodge is horizontal,
     // not hiding under cover.
     dropBomb() {
+        if (this.isRemote) return; // puppets never shoot (Part 2)
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup || !this.player) return;
         if (!this.scene.anims.get('fireball')) {
@@ -163,6 +166,9 @@ export default class Bomber extends BaseEnemy {
         sm.softBulletGroup.add(bomb);
         bomb.play('fireball');
         this.scene.physics.velocityFromAngle(90, 380, bomb.body.velocity);
+        // Part 2: the host also emits the shot so non-hosts spawn the
+        // same bomb locally.
+        this.emitEnemyShot(bomb);
         // 4s lifespan (same as the turret's/boss's) so bombs can't fall forever.
         this.scene.time.delayedCall(4000, () => {
             if (bomb.active) bomb.destroy();

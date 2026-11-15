@@ -9,6 +9,8 @@ export default class LevelFlow extends BaseGame {
     constructor() {
         super('LevelFlow');
         this.shardTotal = 12;
+        // Time-trial ghost: this level has a race timer + finish line.
+        this.trialEnabled = true;
     }
 
     create() {

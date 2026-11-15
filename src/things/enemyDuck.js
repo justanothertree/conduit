@@ -12,6 +12,9 @@ export default class Duck extends BaseEnemy {
 
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
+        // Remote puppet: BaseEnemy.preUpdate already lerped toward
+        // the host position — no patrol, no chase.
+        if (this.isRemote) return;
         this.patrol(time);
         this.chasePlayer(time);
     }

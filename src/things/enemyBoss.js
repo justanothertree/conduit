@@ -74,6 +74,14 @@ export default class Boss extends BaseEnemy {
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
         if (this.dead) return;
+        if (this.isRemote) {
+            // Puppet: phase tint + boss bar track the host's HP (via
+            // syncRemotePhase, which has no volley side effects);
+            // patrol, volleys, leaps and the intro never run.
+            this.syncRemotePhase();
+            this.updateBossBarVisibility();
+            return;
+        }
         this.facePlayer();
         this.clampToArena();    // bounce/turn at the arena walls
         this.patrol(time);      // inherited ground patrol (uses phase speed)
@@ -393,6 +401,7 @@ export default class Boss extends BaseEnemy {
     // can't fly forever). Skipped when the concurrent-projectile cap is hit.
     // Rematch mode fires faster bullets (shotSpeedMult); the cap is unchanged.
     fireBullet(angleDeg, speed = 450) {
+        if (this.isRemote) return; // puppets never shoot (Part 2)
         const sm = this.scene.spawnManager;
         if (!sm?.softBulletGroup) return;
         this.pruneShots();
@@ -403,6 +412,9 @@ export default class Boss extends BaseEnemy {
         bullet.play('fireball');
         this.scene.physics.velocityFromAngle(angleDeg, speed * this.shotSpeedMult, bullet.body.velocity);
         this.bossShots.push(bullet);
+        // Part 2: the host also emits the shot so non-hosts spawn the
+        // same fireball locally. The 36-bullet cap stays host-side.
+        this.emitEnemyShot(bullet);
         this.scene.time.delayedCall(4000, () => {
             if (bullet.active) bullet.destroy();
         });
@@ -423,9 +435,13 @@ export default class Boss extends BaseEnemy {
         this.dropFirstKillLoot();
         // Rematch: leaving the arena and coming back re-spawns the boss in
         // hard mode (see armRematchTrigger). First-kill loot is flag-guarded,
-        // so a rematch can never pay it twice.
-        this.armRematchTrigger(this.homeX, this.homeY,
-            () => this.scene.spawnManager?.spawnBoss(this.homeX, this.homeY));
+        // so a rematch can never pay it twice. Host-only (Part 2): a
+        // non-host's puppet death must never re-spawn the boss locally —
+        // if that client later becomes host, onHostChanged re-arms it.
+        if (this.scene.network?.isHost() !== false) {
+            this.armRematchTrigger(this.homeX, this.homeY,
+                () => this.scene.spawnManager?.spawnBoss(this.homeX, this.homeY));
+        }
         this.emit('die', player);
         this.deactivate();
     }

@@ -32,7 +32,17 @@ export default class ShurikanProjectile extends WeaponProjectile {
     }
 
     enemyHit(enemy, stunDuration = 300) {
-        if(this.visualOnly) return;
+        // Visual-only (another player's ghost shurikan): never damage,
+        // but DO chain — the receiver renders the hops against its own
+        // local enemies, display-only. canHit() guards it so one overlap
+        // fires one chain, not one per frame. The chain projectiles are
+        // visual-only too (chainAttack passes this.visualOnly through).
+        if (this.visualOnly) {
+            if (this.chainCount > 0 && this.canHit(enemy)) {
+                this.chainAttack(enemy);
+            }
+            return;
+        }
         if (!this.canHit(enemy)) return;
 
         // Scalar read of the body velocity — no per-hit Vector2 allocation
@@ -124,7 +134,9 @@ export default class ShurikanProjectile extends WeaponProjectile {
         for (let i = 0; i < Math.min(validTargets.length, this.maxTargets); i++) {
             const { target } = validTargets[i];
             this.chainCount--;
-            const chainShurikan = new ShurikanProjectile(this.scene, this.x, this.y, this.player, this.weapon, this.chainCount, 1, 1, false)
+            // Chain jumps inherit visual-only: a ghost shurikan's hops
+            // render on the receiver and never deal damage there.
+            const chainShurikan = new ShurikanProjectile(this.scene, this.x, this.y, this.player, this.weapon, this.chainCount, 1, 1, this.visualOnly)
             // Chain jumps are not direct hits — they never trigger
             // Lifesteal (enemyHit passes !isChain to TakeDamage).
             chainShurikan.isChain = true;

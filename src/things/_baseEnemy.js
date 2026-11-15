@@ -8,7 +8,16 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
 
         this.player = scene.player;
 
-        this.doesReplicate = false;
+        // Part 2 — host-authoritative enemies. isRemote: this enemy is
+        // a puppet driven by the host's state broadcasts (no AI, no
+        // local damage, no projectile spawning). netId is the stable
+        // spawn-point identity assigned by SpawnManager on every
+        // spawn/activation; netType is the canonical lowercase type
+        // string used on the wire (this.name keeps its legacy mixed
+        // case — 'sunMan' — and is never sent).
+        this.isRemote = false;
+        this.netId = null;
+        this.netType = null;
         this.maxHealth = health;
         this.health = health;
         this.canDamage = true;
@@ -61,6 +70,16 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         this.updateHealthBar();
         this.locoAnims();
         if (!this.stunned) this.staggerDR = Phaser.Math.Clamp(this.staggerDR + delta / 10000, 0, 1);
+        // Remote puppet: the host owns the position — interpolate
+        // toward its last broadcast target and run no AI at all (the
+        // accelToPlayer line below, and every subclass's patrol/chase/
+        // attack code after this super call, must not run). Subclasses
+        // return early right after super.preUpdate too, so a puppet
+        // never telegraphs, shoots, or locks an arena.
+        if (this.isRemote) {
+            this.lerpPosition(delta);
+            return;
+        }
         if (this.accelToPlayerSpeed) this.scene.physics.accelerateToObject(this, this.player, this.accelToPlayerSpeed, this.maxaccell, this.maxaccell);
 
 
@@ -89,6 +108,16 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     // direct weapon hits feed Lifesteal.
     TakeDamage(x, y, damage = 1, stunDuration = 300, allowLifesteal = true) {
         if (this.dead || !this.canDamage) return false;
+        // Remote puppet (Part 2): never apply damage locally — route
+        // the hit to the host and flash for responsiveness. The HP
+        // change rides the host's next state broadcast. Returns true
+        // so the weapon still plays its hit sound and chains like a
+        // real hit. (Charger checks its frontal shield before reaching
+        // here, so a blocked hit never even routes.)
+        if (this.isRemote) {
+            this.routeHitToHost(x, y, damage, stunDuration);
+            return true;
+        }
         if (!this.createdHealthBar) this.createHealthBar();
 
         const ok = this.applyDamage(x, y, damage, stunDuration);
@@ -176,23 +205,115 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
 
     }
 
-    replicateEnemy() {
-        if (!this.doesReplicate) return;
+    // Route a hit on a remote puppet to the host (Part 2): the host
+    // validates and applies it, and the result rides the next state
+    // broadcast. Local feedback is a red hit flash only — no HP
+    // change, no knockback, no stun, no Lifesteal: the host owns all
+    // of that. Damage is capped client-side as well as host-side.
+    // No throttle: every path that reaches here is already discrete
+    // per hit (melee rays guard with hitTargets, projectiles with
+    // canHit, aura zaps fire on a timer), so a routed hit is one
+    // small volatile packet.
+    routeHitToHost(x, y, damage, stunDuration) {
+        if (!this.createdHealthBar) this.createHealthBar();
+        this.setTint(0xff0000);
+        this.scene?.time?.delayedCall(100, () => {
+            if (!this.dead) this.restoreTint();
+        });
+        if (!this.netId || !Number.isFinite(damage) || damage <= 0) return;
+        this.scene?.network?.socket?.volatile.emit('enemyHitRequest', {
+            netId: this.netId,
+            damage: Math.min(damage, 50),
+            kx: Number.isFinite(x) ? x : 0,
+            ky: Number.isFinite(y) ? y : 0,
+            stun: Number.isFinite(stunDuration) ? stunDuration : 300,
+        });
+    }
 
-        if (this.replicateTimer < this.scene.time.now) {
-            this.replicateTimer = this.scene.time.now + 100;
+    // One enemy projectile, shared by every shooter (Part 2): the host
+    // also emits the shot so non-hosts can spawn the same fireball
+    // locally (real Bullet, can hurt the local player). Call AFTER the
+    // bullet exists with its velocity set. Puppets never shoot, and
+    // only the host emits — a client that just lost host status stops
+    // mid-volley rather than double-firing with the new host.
+    emitEnemyShot(bullet) {
+        const net = this.scene?.network;
+        if (!net || !net.socket || this.isRemote || !net.isHost()) return;
+        // Active check: the mini-boss's trackShot() destroys the bullet
+        // when its 36-shot cap is hit, and emit runs after it — a
+        // destroyed bullet must never be emitted (its velocity is gone
+        // and the receiver would spawn a shot the host doesn't have).
+        if (!bullet?.active || !bullet?.body) return;
+        net.socket.volatile.emit('enemyShotRequest', {
+            kind: 'fireball',
+            start: { x: Math.round(bullet.x), y: Math.round(bullet.y) },
+            velocity: {
+                x: Math.round(bullet.body.velocity.x),
+                y: Math.round(bullet.body.velocity.y),
+            },
+        });
+    }
+
+    // Boss phase from HP fraction, without side effects (Part 2):
+    // puppets need the phase tint + bar phase to track the host's HP,
+    // but updatePhase() fires volleys and phase bursts — never call
+    // that on a puppet. Default thresholds are the big bosses'
+    // (0.66/0.33); the Bombardier calls syncRemotePhase(0.5, -1) for
+    // its two phases.
+    syncRemotePhase(mid = 0.66, low = 0.33) {
+        if (this.phase === undefined) return;
+        const frac = this.maxHealth ? this.health / this.maxHealth : 1;
+        const ph = frac > mid ? 1 : frac > low ? 2 : 3;
+        if (ph !== this.phase) {
+            this.phase = ph;
+            this.restoreTint();
         }
+    }
 
-        if (this.scene && !this.isRemote && this.scene.network) {
-            this.scene.network.socket.emit('enemyStateRequest', {
-                id: this.id,
-                type: this.name,
-                x: this.x,
-                y: this.y,
-                vx: this.body.velocity.x,
-                vy: this.body.velocity.y,
-                sceneKey: this.scene.scene.key,
-            });
+    // Flip an enemy between AI-driven and puppet (Part 2). Going
+    // remote stops everything that moves or shoots it: the homing
+    // timer is removed, gravity is parked (the lerp owns the
+    // position — a falling puppet would fight it), pending telegraph
+    // generations are invalidated so a delayed volley can't fire,
+    // and the lerp stretches to the ~83ms broadcast cadence. Waking
+    // up restores gravity and re-arms the AI timers from a beat out
+    // (patrol timers reset is acceptable — the position and HP carry
+    // over, which is what matters), and re-starts homing for bats
+    // and sunmen from their stored accel range.
+    setRemote(remote) {
+        if (this.isRemote === remote) return;
+        this.isRemote = remote;
+        const now = this.scene?.time?.now ?? 0;
+        if (remote) {
+            this._gravWas = this.body ? this.body.allowGravity : true;
+            if (this.body) {
+                this.body.allowGravity = false;
+                this.body.setVelocity(0, 0);
+            }
+            this.accelToPlayerSpeed = 0;
+            if (this.accelToPlayerTimer) {
+                this.scene?.time?.removeEvent(this.accelToPlayerTimer);
+                this.accelToPlayerTimer = null;
+            }
+            this.lerpDuration = 90;
+            this.windingUp = false;
+            if (this.volleyGen !== undefined) this.volleyGen++;
+            if (this.gen !== undefined) this.gen++;
+            this.lerpTimer = 0;
+            this.prevPos.set(this.x, this.y);
+            this.targetPos.set(this.x, this.y);
+        } else {
+            if (this.body && this._gravWas !== undefined) {
+                this.body.allowGravity = this._gravWas;
+            }
+            this.lerpDuration = 33;
+            if (this.nextShot !== undefined) this.nextShot = now + 1500;
+            if (this.nextDrop !== undefined) this.nextDrop = now + 1500;
+            if (this.nextAttack !== undefined) this.nextAttack = now + 3000;
+            if (this.nextFireball !== undefined) this.nextFireball = now + 1500;
+            if (this.nextCharge !== undefined) this.nextCharge = now + 1500;
+            this.windingUp = false;
+            if (this._accelMin !== undefined) this.accelToPlayer();
         }
     }
 
@@ -214,6 +335,9 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         this.lerpTimer = 0;
         this.prevPos.set(this.x, this.y);
         this.targetPos.set(x, y);
+        // The lerp owns the position now — a physics velocity would
+        // fight it (and gravity is off for puppets), so stop the body.
+        if (this.body) this.body.setVelocity(0, 0);
     }
 
     deactivate() {
@@ -250,6 +374,14 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
         this.isPooled = false;
         this.health = health;
         this.maxHealth = health;
+        // A re-activated enemy starts a fresh network life: no stale
+        // death broadcast, no stale rematch arming, and no lerp from
+        // wherever the previous life ended.
+        this._netDeathSent = false;
+        this._rematchArmed = false;
+        this.lerpTimer = 0;
+        this.prevPos.set(x, y);
+        this.targetPos.set(x, y);
 
         // Re-register the update listener (removed in deactivate()).
         this.scene.events.off('update', this.currentSpeed, this);
@@ -387,8 +519,11 @@ export default class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     // death keeps the trigger from firing while the player is still
     // collecting first-kill loot. The check lives on the scene clock,
     // so it dies with the scene on level exit — no cross-scene leaks —
-    // and removes itself once fired.
+    // and removes itself once fired. _rematchArmed (reset in
+    // activate()) keeps a death + a host handoff from arming it twice.
     armRematchTrigger(x, y, spawnFn) {
+        if (this._rematchArmed) return;
+        this._rematchArmed = true;
         const scene = this.scene;
         if (!scene) return;
         const readyAt = scene.time.now + 10000;

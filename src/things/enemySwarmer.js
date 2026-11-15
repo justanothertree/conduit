@@ -54,6 +54,8 @@ export default class Swarmer extends BaseEnemy {
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
         if (this.dead || this.stunned) return;
+        // Remote puppet: no patrol.
+        if (this.isRemote) return;
         // Fast ground patrol (edge-aware, like the charger walk). No chase:
         // the pack's pressure comes from numbers and speed, not homing —
         // three of them patrolling a room at 280px/s already cut off the

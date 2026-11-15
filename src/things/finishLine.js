@@ -16,6 +16,9 @@ export default class FinishLine extends Pickup {
         delete this.scene.raceTimer;
         this.setTint(0x00FF00);
 
+        // Time-trial ghost: save the run when it beats the level best.
+        this.scene.onTrialFinish?.(this.scene.raceTime);
+
         this.scene.time.addEvent({
             delay: 200,
             repeat: 6,

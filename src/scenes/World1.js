@@ -21,6 +21,10 @@ export default class World1 extends BaseGame {
         super('World1');
         this.shardTotal = 12;
         this.shardBannerText = 'WORLD 1 COMPLETE!';
+        // Time-trial ghost: the vault portal is the finish (see
+        // setupReturnPortal) — the level's finish-line object sits
+        // 32px past it and the portal's 140px box is reached first.
+        this.trialEnabled = true;
     }
 
     create() {
@@ -70,6 +74,10 @@ export default class World1 extends BaseGame {
             if (this._portalTransitioning) return;
             if (p.targetScene && this.scene.key !== p.targetScene) {
                 this._portalTransitioning = true;
+                // The vault portal is this level's finish: record the run
+                // before leaving. Idempotent with the finish line (whichever
+                // fires first wins; the second is a no-op).
+                this.onTrialFinish?.(this.raceTime);
                 GameManager.useLastLocation = false;
                 GameManager.save();
                 this.scene.start(p.targetScene);

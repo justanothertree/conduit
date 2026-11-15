@@ -1,5 +1,37 @@
 const CURRENT_VERSION = 0.118;
 
+// Time-trial best runs: { [levelKey]: { time, startX, startY, x[], y[], f } }.
+// Recordings are player-local save data, so validate their shape before
+// trusting them — a corrupt or hand-edited save must not throw in the
+// ghost replay or balloon memory. The 3600-sample cap mirrors
+// TRIAL_MAX_SAMPLES in things/timeTrialGhost.js (6 minutes at 10Hz).
+function sanitizeBestRuns(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+    const out = {};
+    for (const key of Object.keys(data)) {
+        const run = data[key];
+        if (!run || typeof run !== 'object') continue;
+        if (!Number.isFinite(run.time) || run.time <= 0) continue;
+        if (!Number.isFinite(run.startX) || !Number.isFinite(run.startY)) continue;
+        if (!Array.isArray(run.x) || !Array.isArray(run.y)) continue;
+        if (run.x.length !== run.y.length || run.x.length === 0) continue;
+        if (run.x.length > 3600) continue;
+        if (typeof run.f !== 'string' || run.f.length !== run.x.length) continue;
+        if (!/^[01]*$/.test(run.f)) continue;
+        if (!run.x.every((v) => Number.isFinite(v) && Math.abs(v) < 100000)) continue;
+        if (!run.y.every((v) => Number.isFinite(v) && Math.abs(v) < 100000)) continue;
+        out[key] = {
+            time: run.time,
+            startX: run.startX,
+            startY: run.startY,
+            x: run.x,
+            y: run.y,
+            f: run.f,
+        };
+    }
+    return out;
+}
+
 export default {
     version: CURRENT_VERSION,
     name: { text: 'Hunter', color: '#FFFFFF' },
@@ -12,6 +44,9 @@ export default {
     volume: { master: 1, music: 1, voice: 1 },
     collectedItems: [],
     cards: [],
+    // Personal-best time-trial recordings, one per level (see
+    // things/timeTrialGhost.js). Session-only checkpoint stays separate.
+    bestRuns: {},
     flags: {
         seenIntro: false,
         devmode: false,
@@ -35,6 +70,7 @@ export default {
             volume: this.volume,
             collectedItems: this.collectedItems,
             cards: this.cards,
+            bestRuns: this.bestRuns,
             flags: this.flags,
             useLastLocation: this.useLastLocation,
         };
@@ -63,6 +99,7 @@ export default {
                         power: parsed.power,
                         cards: parsed.cards,
                         collectedItems: parsed.collectedItems,
+                        bestRuns: parsed.bestRuns,
                         flags: parsed.flags,
                         upgrades: parsed.upgrades,
                     }
@@ -83,6 +120,7 @@ export default {
             this.volume = parsed.volume ?? { master: 1, music: 1, voice: 1 };
             this.collectedItems = parsed.collectedItems ?? [];
             this.cards = parsed.cards ?? [];
+            this.bestRuns = sanitizeBestRuns(parsed.bestRuns);
             this.flags = parsed.flags ?? {};
             this.useLastLocation = parsed.useLastLocation ?? false;
         }
@@ -101,6 +139,7 @@ export default {
         this.volume = keep.volume ?? { master: 1, music: 1, voice: 1 };
         this.collectedItems = keep.collectedItems ?? [];
         this.cards = keep.cards ?? [];
+        this.bestRuns = sanitizeBestRuns(keep.bestRuns);
         this.flags = keep.flags ?? {
             seenIntro: false,
             devmode: false,
@@ -115,8 +154,15 @@ export default {
         localStorage.removeItem('webConduitSave');
     },
 
-    getNetworkData() {
+    // The current scene key rides along so other clients can elect a
+    // per-level host (Part 2): the host is the lowest socket id among
+    // players whose data.scene matches the level. The server stores
+    // `data` opaquely and re-broadcasts it as-is, so no server change
+    // is needed for this field. Callers pass the live scene key —
+    // GameManager.area lags behind on level entry.
+    getNetworkData(sceneKey) {
         return {
+            scene: sceneKey ?? this.area ?? 'Home',
             location: {
                 x: this.location.x,
                 y: this.location.y

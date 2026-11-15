@@ -132,6 +132,9 @@ export default class WeaponWhip extends WeaponBase {
         const data = this.calculateShot(pointer, 15);
         const angleDeg = Phaser.Math.RadToDeg(Phaser.Math.Angle.Between(data.start.x, data.start.y, data.cursorPos.x, data.cursorPos.y));
 
+        // Multiplayer: other players render this flick display-only.
+        this.emitAttack('whip', { start: data.start, direction: data.direction, angle: angleDeg });
+
         this.weaponSpriteOffset = data.vector;
 
         this.weaponSprite = this.scene.add.sprite(data.start.x + data.vector.x, data.start.y + data.vector.y, 'whip')

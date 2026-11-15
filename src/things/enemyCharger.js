@@ -59,6 +59,8 @@ export default class Charger extends BaseEnemy {
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
         if (this.dead || this.stunned) return;
+        // Remote puppet: no walk, no charge state machine.
+        if (this.isRemote) return;
         const now = this.scene.time.now;
         switch (this.state) {
             case 'walk': this.walk(now); break;
