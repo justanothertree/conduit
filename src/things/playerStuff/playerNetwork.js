@@ -56,11 +56,13 @@ export function playerSyncNetwork(player) {
 
     ensureSocketConnected(player);
 
-    // Volatile: a sync request is fire-and-forget state sync. While the
-    // transport is down it is dropped instead of piling up in socket.io's
-    // outbound buffer. The 500ms throttle above retries naturally once
-    // we're connected again.
-    player.network.socket.volatile.emit('playerSyncRequest', {
+    // Reliable (NOT volatile): this is the level-change sync, and a
+    // dropped one leaves the server — and every other client —
+    // believing I am still in the old level, so host election, rooms,
+    // and ghost visibility all go stale until the next sync. The
+    // 500ms throttle above bounds the outbound buffer to ~1 pending
+    // packet while the transport is down, so nothing piles up.
+    player.network.socket.emit('playerSyncRequest', {
         data: {
             // Scene key for per-level host election (Part 2): the host is
             // the lowest socket id among players in this scene. Sent on

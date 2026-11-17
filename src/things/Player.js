@@ -359,6 +359,18 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         this.leftWeapon?.release();
         this.rightWeapon?.release();
         this.setVelocity(0, 0);
+        // Multiplayer host death (Part 2): respawning restarts MY
+        // scene, but the fresh local enemies must not reset the
+        // SHARED level for the other players in it — preserve the
+        // dead set now; the new scene re-applies it on the first
+        // broadcast tick (NetworkManager). Solo deaths (no other
+        // player in this level) restart the level exactly as before.
+        const net = this.network;
+        const othersInLevel = net && Object.values(net.otherPlayers ?? {})
+            .some((p) => p?.myData?.scene === this.scene.scene.key);
+        if (net?.socket?.connected && net.isHost() && othersInLevel) {
+            net.preserveSharedEnemyState();
+        }
         GameManager.useLastLocation = false;
         // Respawn at full derived max HP (was hardcoded 25, ignoring
         // Shard Shop Max Health upgrades).

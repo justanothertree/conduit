@@ -15,6 +15,7 @@ const ENEMY_TYPES = new Set([
 const ENEMY_BROADCAST_HZ_MS = 83; // ~12Hz host broadcast
 const ENEMY_MAX_ENTRIES = 48; // per-tick cap (levels hold 17–24)
 const ENEMY_FULL_EVERY_TICKS = 12; // full snapshot ~1s, deltas between
+const HOST_SILENCE_MS = 3000; // host failover: no state for this long = gone
 
 export default class NetworkManager extends Phaser.Events.EventEmitter {
   static instance;
@@ -54,6 +55,17 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     // the first packet, never before it.
     this._puppetSwitchPending = true;
     this._puppetFallbackTimer = null;
+    // Host death-restart (Part 2): the dead netIds preserved at
+    // respawnPlayer() so the fresh scene doesn't reset the shared
+    // level for the others, plus the scene key they belong to (a
+    // level change clears them — re-entry is a fresh run).
+    this._preservedDead = null;
+    this._preservedDeadScene = undefined;
+
+    // Host failover watchdog: re-run the election every second so a
+    // silent host hands over within ~3s + 1s even when no sync event
+    // arrives (recomputeHost no-ops when nothing changed).
+    this._hostWatchdogTimer = setInterval(() => this.recomputeHost(), 1000);
 
     const serverURL =
       location.hostname === 'localhost' || location.hostname === '127.0.0.1'
@@ -331,7 +343,7 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
   // socket / not connected) I am the host, so solo play is exactly
   // the old local simulation. GhostPlayer stores the last synced
   // data as myData, which is where the scene field lives.
-  getHostId() {
+  getHostId(excludeId = null) {
     const socket = this.socket;
     if (!socket?.id) return null;
     const sceneKey = this.scene?.scene?.key;
@@ -339,6 +351,7 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     let host = socket.id;
     let hostEnteredAt = this._sceneEnteredAt ?? Infinity;
     for (const id in this.otherPlayers) {
+      if (id === excludeId) continue;
       const p = this.otherPlayers[id];
       if (p?.myData?.scene !== sceneKey) continue;
       const enteredAt = Number.isFinite(p.myData?.enteredAt)
@@ -352,10 +365,30 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     return host;
   }
 
+  // Host failover: the stamp election above is unchanged — but a
+  // stamp-host that has gone silent (no valid enemy-state packet
+  // for HOST_SILENCE_MS) is treated as gone, and the
+  // next-longest-present player takes over. The handover is local
+  // first: the new host wakes its puppets and starts broadcasting;
+  // the server still gates on its own stamp election, so those
+  // packets only flow once the old host disconnects or is kicked
+  // for inactivity — but the level keeps simulating locally either
+  // way. Only applies once state has actually been seen from a
+  // host: before the first packet (and on the old server, where no
+  // packets arrive at all) there is nothing to fail over from, and
+  // the local-sim fallback stands.
+  getEffectiveHostId() {
+    const stampHost = this.getHostId();
+    if (!stampHost || stampHost === this.socket?.id) return stampHost;
+    if (!this._hostStateSeenAt) return stampHost;
+    if (Date.now() - this._hostStateSeenAt <= HOST_SILENCE_MS) return stampHost;
+    return this.getHostId(stampHost);
+  }
+
   isHost() {
     const socket = this.socket;
     if (!socket || !socket.connected || !socket.id) return true;
-    return this.getHostId() === socket.id;
+    return this.getEffectiveHostId() === socket.id;
   }
 
   // Re-run the election after anything that can change it. On a
@@ -398,6 +431,13 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     this._enemyTick = 0;
     this._sceneEnteredAt = undefined;
     this._netSeenAlive.clear();
+    this._hostStateSeenAt = undefined;
+    // A level change clears the preserved dead set — re-entry is a
+    // fresh run. A same-scene restart (host death) keeps it.
+    if (this._preservedDead && this._preservedDeadScene !== scene?.scene?.key) {
+      this._preservedDead = null;
+      this._preservedDeadScene = undefined;
+    }
     this._puppetSwitchPending = true;
     if (this._puppetFallbackTimer) {
       clearTimeout(this._puppetFallbackTimer);
@@ -424,6 +464,11 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     if (!this.isHost()) return;
     const socket = this.socket;
     if (!socket?.connected) return;
+    // Host death-restart: re-apply the dead set preserved at
+    // respawnPlayer() BEFORE building entries, so the fresh scene
+    // doesn't broadcast the shared level back to life for the
+    // others. Runs on the first tick where the new registry exists.
+    if (this._preservedDead?.size) this._applyPreservedDead();
     const sm = this.scene?.spawnManager;
     if (!sm?.netEnemies?.size) return;
     const sceneKey = this.scene.scene.key;
@@ -455,6 +500,75 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     if (!entries.length) return;
     this._enemyLastSent = next;
     socket.volatile.emit('enemyStateRequest', { sceneKey, full, enemies: entries });
+  }
+
+  // Host death-restart (Part 2): snapshot the shared dead set
+  // BEFORE the dying host's scene restart, so the fresh local
+  // enemies don't reset the level for the other players in it.
+  // Captured from the live registry (dead/inactive entries) plus
+  // the last broadcast snapshot (dead entries the registry may
+  // have pruned). Applied lazily on the first broadcast tick of
+  // the new scene (see _applyPreservedDead). Only called when
+  // other players share the level — solo deaths restart the level
+  // exactly as before.
+  preserveSharedEnemyState() {
+    const dead = new Set();
+    const sm = this.scene?.spawnManager;
+    if (sm?.netEnemies) {
+      for (const enemy of sm.netEnemies.values()) {
+        if (enemy.netId && (enemy.dead || !enemy.active)) dead.add(enemy.netId);
+      }
+    }
+    if (this._enemyLastSent) {
+      for (const entry of this._enemyLastSent.values()) {
+        if (entry && entry.netId && entry.alive === false) dead.add(entry.netId);
+      }
+    }
+    this._preservedDead = dead;
+    this._preservedDeadScene = this.scene?.scene?.key;
+  }
+
+  // Re-apply the preserved dead set to the fresh scene's registry:
+  // each still-dead enemy is removed quietly (no payout, no loot,
+  // no timers — it is already dead in the shared state), so the
+  // next full snapshot re-sends it as dead and the other clients
+  // converge instead of watching the level repopulate. Ducks keep
+  // their respawn trajectory (the restart destroyed the pending
+  // timer, so it is re-armed here); dead bosses get their rematch
+  // trigger re-armed. Entries for enemies not spawned yet stay
+  // pending for the next tick.
+  _applyPreservedDead() {
+    const sm = this.scene?.spawnManager;
+    if (!sm?.netEnemies) return;
+    if (this._preservedDeadScene !== this.scene?.scene?.key) {
+      this._preservedDead = null;
+      this._preservedDeadScene = undefined;
+      return;
+    }
+    let rearmBosses = false;
+    for (const netId of [...this._preservedDead]) {
+      const enemy = sm.netEnemies.get(netId);
+      if (!enemy) continue;
+      this._preservedDead.delete(netId);
+      if (enemy.dead || !enemy.active) continue;
+      enemy.deactivate();
+      if (enemy.netType === 'duck') {
+        const m = /^duck:(-?\d+):(-?\d+)$/.exec(netId);
+        if (m) {
+          sm.respawn(enemy, Number(m[1]), Number(m[2]),
+            enemy.maxHealth ?? 20, sm.spawnDuck.bind(sm));
+          enemy.emit('die');
+        }
+      } else if (enemy.netType === 'boss' || enemy.netType === 'boss2'
+        || enemy.netType === 'miniboss') {
+        rearmBosses = true;
+      }
+    }
+    if (rearmBosses) this.rearmBossRematches();
+    if (!this._preservedDead.size) {
+      this._preservedDead = null;
+      this._preservedDeadScene = undefined;
+    }
   }
 
   // One registry enemy → one wire entry, or null when there is
@@ -519,6 +633,14 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     if (typeof data.sceneKey !== 'string'
       || data.sceneKey !== this.scene?.scene?.key) return;
     if (!Array.isArray(data.enemies) || data.enemies.length > 64) return;
+    // A valid packet from the stamp-elected host proves it is alive
+    // — record it even if I took over by failover, so the election
+    // yields back to it (recomputeHost flips me to non-host and the
+    // packet is then applied below instead of dropped).
+    if (data.id === this.getHostId()) {
+      this._hostStateSeenAt = Date.now();
+      this.recomputeHost();
+    }
     if (this.isHost()) return; // the host never applies — it IS the authority
     const sm = this.scene?.spawnManager;
     if (!sm) return;
@@ -655,7 +777,9 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     if (!data || typeof data !== 'object') return;
     if (data.id === this.socket?.id) return;
     if (this.isHost()) return;
-    if (data.id !== this.getHostId()) return;
+    // Item 5: the sender must be my level's CURRENT host — the
+    // effective host, so shots from a failover host are accepted too.
+    if (data.id !== this.getEffectiveHostId()) return;
     if (typeof data.sceneKey !== 'string'
       || data.sceneKey !== this.scene?.scene?.key) return;
     if (data.kind !== 'fireball') return;

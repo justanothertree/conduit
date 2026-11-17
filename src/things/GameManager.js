@@ -123,6 +123,13 @@ export default {
                 console.warn('Corrupt save in localStorage; starting with defaults.', e);
                 return;
             }
+            // A save of literal `null` (or a bare string/number) parses
+            // fine but is not a save object — `parsed.version` below
+            // would throw. Treat it as corrupt, same as bad JSON.
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                console.warn('Save parsed to a non-object; starting with defaults.');
+                return;
+            }
 
             if (parsed.version !== CURRENT_VERSION) {
                 console.warn('Save version mismatch. Resetting world state, preserving earned progression.');

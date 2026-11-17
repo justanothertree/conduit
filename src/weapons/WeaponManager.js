@@ -16,8 +16,12 @@ export function createWeapon(type, scene, player) {
     // Unknown type (stale/hand-edited save, or a bad default) must not
     // throw at player construction — Player equips GameManager.weapons
     // straight from the save, so fall back to shurikan and warn.
-    const WeaponClass = weaponTypes[type] ?? weaponTypes.shurikan;
-    if (!weaponTypes[type]) console.warn(`Unknown weapon type "${type}", falling back to shurikan.`);
+    // Prototype-free lookup: a type of "__proto__"/"constructor"/
+    // "toString" would resolve through the prototype chain and hand
+    // back a non-weapon (or undefined, crashing the `new` below).
+    const known = Object.hasOwn(weaponTypes, type);
+    const WeaponClass = known ? weaponTypes[type] : weaponTypes.shurikan;
+    if (!known) console.warn(`Unknown weapon type "${type}", falling back to shurikan.`);
     return new WeaponClass(scene, player)
 }
 

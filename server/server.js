@@ -14,7 +14,13 @@ import cors from 'cors';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const BIN_ID = '685dfd338960c979a5b22637';
-const API_KEY = '$2a$10$T5HrVvdoM.0KzR3OnpsdTOGfioI9cIoyAckz3N4XOhTmdRWFNnMn.';
+// JSONBin key lives in the environment, never in the repo: the old
+// hardcoded value is already in the public git history (revoking it
+// is Josh's call — this only stops it leaking further). Set
+// JSONBIN_KEY on the Render service; without it, high scores simply
+// don't load/save and the server still runs.
+const API_KEY = process.env.JSONBIN_KEY;
+if (!API_KEY) console.warn('⚠️ JSONBIN_KEY env var not set — high scores will not load/save.');
 const BASE_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
 
@@ -55,7 +61,7 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(cors({
-  origin: 'https://krazay17.github.io',
+  origin: ['https://krazay17.github.io', 'https://justanothertree.github.io'],
   methods: ['GET', 'POST'],
   credentials: true
 }));
@@ -64,6 +70,7 @@ const io = new Server(server, {
   cors: {
     origin: [
       "https://krazay17.github.io",
+      "https://justanothertree.github.io",
       "http://localhost:5173",
       "http://10.0.0.194:5173",
     ],
@@ -224,6 +231,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('playerStateRequest', (state) => {
+    if (!state || typeof state !== 'object') return;
     if (players[socket.id]) {
       players[socket.id].data.location.x = state.x;
       players[socket.id].data.location.y = state.y;
@@ -231,14 +239,18 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('playerName', ({ text, color }) => {
+  socket.on('playerName', (payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    const { text, color } = payload;
     if (players[socket.id]) {
       players[socket.id].data.name = { text, color };
       socket.broadcast.emit('playerNamed', { id: socket.id, text, color });
     }
   });
 
-  socket.on('playerLevel', ({ money, auraLevel }) => {
+  socket.on('playerLevel', (payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    const { money, auraLevel } = payload;
     if (players[socket.id]) {
       players[socket.id].data.power = { money, auraLevel };
       socket.broadcast.emit('playerLeveled', { id: socket.id, money, auraLevel });
@@ -281,8 +293,12 @@ io.on('connection', (socket) => {
   socket.on('attackRequest', (payload) => {
     if (!players[socket.id]) return;
     if (!payload || typeof payload !== 'object') return;
+    // Prototype-free lookup: ATTACK_FIELDS is a plain object, so a
+    // kind of "__proto__"/"constructor"/"toString" would resolve to
+    // Object.prototype (truthy) and `for...of` over it would throw.
+    if (typeof payload.kind !== 'string'
+      || !Object.hasOwn(ATTACK_FIELDS, payload.kind)) return;
     const fields = ATTACK_FIELDS[payload.kind];
-    if (!fields) return;
     const validated = { kind: payload.kind };
     for (const field of fields) {
       if (field in payload) validated[field] = payload[field];
@@ -424,7 +440,10 @@ io.on('connection', (socket) => {
     io.emit('highScoreUpdate', getScores());
   });
 
-  socket.on('signal', ({ to, data }) => {
+  socket.on('signal', (payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    const { to, data } = payload;
+    if (typeof to !== 'string' || !to) return;
     io.to(to).emit('signal', { from: socket.id, data });
   });
 
@@ -434,6 +453,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('pvpDamageRequest', (data) => {
+    if (!data || typeof data !== 'object') return;
     if (players[socket.id]) {
       //socket.broadcast.emit('pvpDamageUpdate', { id: socket.id, data });
       // send damage to id
@@ -445,6 +465,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('pvpKillRequest', (data) => {
+    if (!data || typeof data !== 'object') return;
     if (players[socket.id]) {
       const targetSocket = io.sockets.sockets.get(data.killer);
       if (targetSocket) {
