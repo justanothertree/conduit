@@ -28,9 +28,12 @@ export default class LevelFlow extends BaseGame {
     // Home return portal at the summit (near the finish line), so players
     // can get back without using the menu.
     setupReturnPortal() {
-        if (!this.portals) {
-            this.portals = this.physics.add.staticGroup();
-        }
+        // ALWAYS build a fresh group — see World1.setupReturnPortal: the
+        // old group is destroyed on scene shutdown, so reusing it across a
+        // restart (death -> respawnPlayer -> scene.restart) throws
+        // "Cannot read properties of undefined (reading 'sys')" in the
+        // sprite constructor. Same crash class as Josh's World 1 report.
+        this.portals = this.physics.add.staticGroup();
         const portal = this.portals.create(4900, 1100, 'portal3')
             .setScale(.2)
             .play('portal3')

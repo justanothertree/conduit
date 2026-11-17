@@ -1,5 +1,4 @@
 import BaseEnemy from "./_baseEnemy.js";
-import Bullet from "./bullet.js"
 import Duck from "./enemyDuck.js"
 import Bat from "./enemyBat.js"
 import Boss from "./enemyBoss.js"
@@ -494,36 +493,6 @@ export default class SpawnManager {
         spitter.activate(x, y, health);
         spitter.init();
         return this.registerNetEnemy(spitter, 'spitter', x, y, isRemote, id);
-    }
-
-    spawnBullets(x, y, amount) {
-        for (var i = 0; i < amount; i++) {
-            const bullet = new Bullet(this.scene, x, y + (i * 100), 'bullet');
-            this.softBulletGroup.add(bullet);
-            bullet.setVelocityX(Phaser.Math.Between(-300, -200));
-        };
-    }
-
-    spawnBullet(x, y) {
-        const bullet = new Bullet(this.scene, x, y, 'bullet');
-        this.softBulletGroup.add(bullet);
-        bullet.setVelocityX(-300);
-    }
-
-    spawnFireballs(x, y) {
-        const bullet = new Bullet(this.scene, x, y, 'fireballsheet');
-        this.softBulletGroup.add(bullet);
-        bullet.setVelocityX(-450);
-        if (!this.scene.anims.get('fireball'))
-            this.scene.anims.create({
-                key: 'fireball',
-                frames: this.scene.anims.generateFrameNumbers('fireballsheet', { start: 0, end: 2 }),
-                frameRate: 8,
-                repeat: -1,
-            });
-        bullet.play('fireball');
-
-        return bullet;
     }
 
     spawnBooster(x, y, obj) {

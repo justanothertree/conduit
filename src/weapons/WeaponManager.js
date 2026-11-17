@@ -13,7 +13,11 @@ const weaponTypes = {
     zap: AuraZap,
 };
 export function createWeapon(type, scene, player) {
-    const WeaponClass = weaponTypes[type];
+    // Unknown type (stale/hand-edited save, or a bad default) must not
+    // throw at player construction — Player equips GameManager.weapons
+    // straight from the save, so fall back to shurikan and warn.
+    const WeaponClass = weaponTypes[type] ?? weaponTypes.shurikan;
+    if (!weaponTypes[type]) console.warn(`Unknown weapon type "${type}", falling back to shurikan.`);
     return new WeaponClass(scene, player)
 }
 

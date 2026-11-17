@@ -16,7 +16,12 @@ export default class CardPickup extends Pickup {
         this.icon = card.type;
         this.value = value;
         this.pickupSound = card.sound ? card.sound : 'pickup';
-        if(this.pickupSound !== 'pickup' || this.pickupSound !== 'pickup3') this.detune = 0;
+        // `&&`, not `||`: the `||` form is always true (a string can't equal
+        // both names at once), so detune was forced to 0 for every card and
+        // the common pickup sound never got the random pitch variation
+        // playPooledSound applies when detune is left undefined. Rare-card
+        // sounds (pickup2/6/7) still play at exact pitch.
+        if(this.pickupSound !== 'pickup' && this.pickupSound !== 'pickup3') this.detune = 0;
 
         if (!this.value) {
             this.value = Phaser.Math.Between(card.min, card.max);

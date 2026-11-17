@@ -122,6 +122,15 @@ export default class BaseGame extends Phaser.Scene {
     // images. Replace (not stack), same as the DOM handlers in IconGrid.
     this.scale.off('resize', this.resizeSky, this);
     this.scale.on('resize', this.resizeSky, this);
+    // The off() above only dedupes THIS scene's handler (off matches on
+    // context), so other levels' handlers survived their scenes' shutdown:
+    // Systems.shutdown() never touches the ScaleManager, while the
+    // DisplayList shutdown destroys the sky images those handlers still
+    // reference — after N visited levels a resize fired N handlers, N-1
+    // of them on destroyed images. Drop this scene's handler on shutdown
+    // so a resize only ever reaches live scenes (same convention as
+    // EscMenu's fitMenu cleanup).
+    this.events.once('shutdown', () => this.scale.off('resize', this.resizeSky, this));
   }
 
   resizeSky(gameSize) {
@@ -296,6 +305,11 @@ export default class BaseGame extends Phaser.Scene {
 
     if (this.tilemap) { this.tilemap.destroy(); this.tilemap = null; }
 
+    // The portal group is destroyed on shutdown too — clear the reference
+    // so a restarted scene never reuses a dead one (same class as the
+    // trialGhost nulling above; the World 1 crash came from reusing it).
+    this.portals = null;
+
     // The ghost is a display-list child, so shutdown destroys it anyway;
     // clear the references so a restarted scene never reuses a dead one.
     this.trialGhost = null;
@@ -391,20 +405,6 @@ export default class BaseGame extends Phaser.Scene {
 
   }
 
-  setupPlatforms(platformPos = [[0, 800]]) {
-    platformPos.forEach(pos => this.walkableGroup.create(pos[0], pos[1], 'platform'));
-  }
-
-  setupQuick(x = 0, y = 0) {
-    this.setupSky();
-    this.setupWorld();
-    this.setupPlayer(x, y);
-    this.setupGroups();
-    this.setupTileMap()
-    this.setupCollisions();
-    this.setupMusic();
-  }
-
   shrinkCollision(object, x, y) {
     object.body.setSize(x, y); // Smaller than sprite size
     object.body.setOffset(
@@ -447,26 +447,6 @@ export default class BaseGame extends Phaser.Scene {
 
   spawnSunman(x, y) {
     this.spawnManager.spawnSunMan(x, y, 10)
-  }
-
-  spawnBullets(x, y, text) {
-    const delay = parseInt(text, 10);
-
-    this.time.addEvent({
-      delay: delay,
-      loop: true,
-      callback: () => {
-        this.spawnManager.spawnBullet(x, y);
-      }
-    })
-  }
-
-  spawnSourceBlock(x, y) {
-    const block = this.spawnManager.spawnSourceBlock(x, y);
-  }
-
-  spawnBooster(x, y, obj) {
-    this.spawnManager.spawnBooster(x, y, obj);
   }
 
   setupRaceTimer() {

@@ -706,7 +706,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         return playerSyncNetwork(this);
     }
 
-    equipWeapon(name = 'Shurikan', slot = 0,) {
+    equipWeapon(name = 'shurikan', slot = 0,) {
         let equippedWeapon;
         if (slot === 0) {
             this.leftWeapon = createWeapon(name, this.scene, this);

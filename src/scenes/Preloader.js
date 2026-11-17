@@ -9,6 +9,17 @@ export default class Preloader extends Phaser.Scene {
     }
 
     preload() {
+        // Dead loads removed (Day 60) — each key below was verified to have
+        // zero references anywhere in src/index.html/tools or the tilemaps,
+        // so they only cost boot download time (~2.9MB, mostly RedSky1/2):
+        // redsky1, redsky2, door0, platformwide, platformtall, bottomplat,
+        // duckman, portal0, portal1 (Home's `portal1` is a portalData key,
+        // not this texture — all Home portals use the 'portal3'
+        // spritesheet), largeplatform, greenSpark, pickup3, pickup4,
+        // pickup5, pickup8 (card sounds only ever use pickup/pickup2/
+        // pickup6/pickup7; 'pickup3' appears only in cardPickup.js's
+        // always-true detune condition). The files stay in public/assets,
+        // unreferenced — same as pickup9.wav today.
         this.load.spritesheet('conduitLogo', 'assets/ConduitLogoEdit.png', {
             frameWidth: 512,
             frameHeight: 256
@@ -19,8 +30,6 @@ export default class Preloader extends Phaser.Scene {
 
 
         this.load.image('redsky0', 'assets/RedSky0.webp');
-        this.load.image('redsky1', 'assets/RedSky1.webp');
-        this.load.image('redsky2', 'assets/RedSky2.webp');
         this.load.image('bat', 'assets/BatEnemy.png');
         // Boss art ships as data URIs (see src/assets/bossSprites.js) —
         // snapshot pushes carry text only, so the PNG files can't ride along.
@@ -30,7 +39,6 @@ export default class Preloader extends Phaser.Scene {
         this.load.image('tilesheet', 'assets/tilesheet.png');
         this.load.image('bullet', 'assets/bullet.png');
         this.load.image('duck', 'assets/DuckFloaty.png');
-        this.load.image('door0', 'assets/door0.webp');
         this.load.image('damagescreenflash', 'assets/DamageScreenFlash1.webp');
         this.load.image('purplesky1', 'assets/PurpleSky1.webp');
         this.load.image('purplesky2', 'assets/PurpleSky2.webp');
@@ -39,11 +47,9 @@ export default class Preloader extends Phaser.Scene {
         this.load.image('shurikanicon', 'assets/shurikan.png');
         this.load.image('coin', 'assets/SourceCoin.png');
         this.load.image('platform', 'assets/platform.png');
-        this.load.image('platformwide', 'assets/platformwide.png');
         this.load.image('whipicon', 'assets/WhipIcon.png');
         this.load.image('swordicon', 'assets/SwordIcon.png');
         this.load.image('darkorbicon', 'assets/DarkOrbIcon.png');
-        this.load.image('platformtall', 'assets/platformtall.png');
         this.load.image('zap', 'assets/Zap.png');
         this.load.image('auraicon', 'assets/AuraIcon.png');
         this.load.image('auraicondesat', 'assets/AuraIconDesat.png');
@@ -51,18 +57,12 @@ export default class Preloader extends Phaser.Scene {
         // the 'zapicon' texture (setWeaponIcon builds name + 'icon'). Without it,
         // Phaser renders the green __MISSING texture if the aura is ever re-equipped.
         this.load.image('zapicon', 'assets/AuraIcon.png');
-        this.load.image('bottomplat', 'assets/BottomPlat.png');
-        this.load.image('duckman', 'assets/duckman.png');
         this.load.image('turret', 'assets/TurretPlatform.png');
         this.load.image('finishline', 'assets/finishLine.png');
-        this.load.image('portal0', 'assets/Portal1.png');
-        this.load.image('portal1', 'assets/Portal2.png');
-        this.load.image('largeplatform', 'assets/LargePlatform.webp');
         this.load.image('devilTable', 'assets/DevilTable.png');
         this.load.image('potion', 'assets/Potion.png');
         this.load.image('vault', 'assets/Vault.png');
         this.load.image('greenFlame', 'assets/GreenFlame.png');
-        this.load.image('greenSpark', 'assets/GreenSparkParticle.png');
         this.load.image('sourceOrb', 'assets/SourceOrb.png');
         this.load.image('CardDaily', 'assets/CardDaily.png');
         this.load.image('CardSapling', 'assets/CardSapling.png');
@@ -83,12 +83,8 @@ export default class Preloader extends Phaser.Scene {
         this.load.audio('shurikanhit', 'assets/shurikan.wav');
         this.load.audio('pickup', 'assets/SuccessBeep.wav');
         this.load.audio('pickup2', 'assets/pickup2.wav');
-        this.load.audio('pickup3', 'assets/pickup3.wav');
-        this.load.audio('pickup4', 'assets/pickup4.wav');
-        this.load.audio('pickup5', 'assets/pickup5.wav');
         this.load.audio('pickup6', 'assets/pickup6.wav');
         this.load.audio('pickup7', 'assets/pickup7.wav');
-        this.load.audio('pickup8', 'assets/pickup8.wav');
         this.load.audio('clinksound', 'assets/Clink1.wav');
         this.load.audio('clinksound2', 'assets/Clink2.wav');
         this.load.audio('shopInteract', 'assets/shopInteract.wav');

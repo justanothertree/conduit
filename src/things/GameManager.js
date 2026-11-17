@@ -112,7 +112,17 @@ export default {
     load() {
         const data = localStorage.getItem('webConduitSave');
         if (data) {
-            const parsed = JSON.parse(data);
+            // A corrupt save (truncated write, hand edit) must not kill
+            // the boot: JSON.parse throws, and load() runs in
+            // Preloader.create. Warn and keep the defaults instead — the
+            // next save() overwrites the bad string with valid JSON.
+            let parsed;
+            try {
+                parsed = JSON.parse(data);
+            } catch (e) {
+                console.warn('Corrupt save in localStorage; starting with defaults.', e);
+                return;
+            }
 
             if (parsed.version !== CURRENT_VERSION) {
                 console.warn('Save version mismatch. Resetting world state, preserving earned progression.');

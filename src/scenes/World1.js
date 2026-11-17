@@ -53,11 +53,22 @@ export default class World1 extends BaseGame {
 
     // Home return portal in the vault (past the boss arena), so players can
     // get back without using the menu.
+    //
+    // The portal sits on the vault floor (top y=2240): centre y=2130 puts
+    // the 140px box 40px above the floor, so walking in on foot triggers
+    // it — same gap as the Home portals. (It used to sit at y=2048, 122px
+    // above the floor, which needed a jump to reach at all.)
     setupReturnPortal() {
-        if (!this.portals) {
-            this.portals = this.physics.add.staticGroup();
-        }
-        const portal = this.portals.create(4992, 2048, 'portal3')
+        // ALWAYS build a fresh group: Phaser destroys the old one on scene
+        // shutdown, so reusing it across a restart (death -> respawnPlayer
+        // -> scene.restart, or leaving and coming back) hands .create() a
+        // group whose scene is undefined, and the sprite constructor throws
+        // "Cannot read properties of undefined (reading 'sys')" — Josh's
+        // 2026-11-14 crash, reproduced headless. Every other per-run group
+        // (weaponGroup, walkableGroup, spawn groups) is rebuilt in
+        // setupGroups on every create(); portals are no different.
+        this.portals = this.physics.add.staticGroup();
+        const portal = this.portals.create(4992, 2130, 'portal3')
             .setScale(.2)
             .play('portal3')
             .setTint(0x7CFC00);
@@ -84,7 +95,7 @@ export default class World1 extends BaseGame {
             }
         });
 
-        this.add.text(4992, 1968, 'HOME', {
+        this.add.text(4992, 2050, 'HOME', {
             fontSize: '18px',
             color: '#7CFC00',
             fontStyle: 'bold',
