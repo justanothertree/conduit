@@ -2,37 +2,63 @@
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
-import fs from 'fs';
-import path from 'path';
 import repl from 'repl';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 import fetch from 'node-fetch';
 import cors from 'cors';
 
-// Support __dirname in ESM
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const BIN_ID = '685dfd338960c979a5b22637';
-// JSONBin key lives in the environment, never in the repo: the old
-// hardcoded value is already in the public git history (revoking it
-// is Josh's call — this only stops it leaking further). Set
-// JSONBIN_KEY on the Render service; without it, high scores simply
-// don't load/save and the server still runs.
+// JSONBin credentials live in the environment, never in the repo: the
+// old hardcoded values are already in the public git history
+// (revoking them is Josh's call — this only stops them leaking
+// further). Set JSONBIN_KEY + JSONBIN_BIN_ID on the Render service;
+// without them, high scores simply don't load/save and the server
+// still runs.
+const BIN_ID = process.env.JSONBIN_BIN_ID;
 const API_KEY = process.env.JSONBIN_KEY;
-if (!API_KEY) console.warn('⚠️ JSONBIN_KEY env var not set — high scores will not load/save.');
-const BASE_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+if (!API_KEY || !BIN_ID) console.warn('⚠️ JSONBIN_KEY/JSONBIN_BIN_ID env vars not set — high scores will not load/save.');
+const BASE_URL = BIN_ID ? `https://api.jsonbin.io/v3/b/${BIN_ID}` : null;
 
 
-let highScores = {};
+// Score maps are null-prototype objects (see toScoreStore): no level
+// or player name — "__proto__" included — can ever resolve through
+// Object.prototype.
+let highScores = Object.create(null);
+
+// Rebuild a score record into null-prototype maps, keeping only
+// well-formed entries (string level/player <= 64 chars, finite time).
+// Used for the JSONBin payload, so a hostile key in stored data can
+// never pollute Object.prototype.
+function toScoreStore(record) {
+  const store = Object.create(null);
+  if (!record || typeof record !== 'object') return store;
+  for (const [level, players] of Object.entries(record)) {
+    if (typeof level !== 'string' || !level || level.length > 64) continue;
+    if (!players || typeof players !== 'object') continue;
+    const levelStore = Object.create(null);
+    for (const [player, data] of Object.entries(players)) {
+      if (typeof player !== 'string' || !player || player.length > 64) continue;
+      const t = data && typeof data === 'object' ? Number(data.time) : NaN;
+      if (!Number.isFinite(t)) continue;
+      levelStore[player] = { time: t };
+    }
+    store[level] = levelStore;
+  }
+  return store;
+}
+
 // Load scores from JSONBin at startup
 async function loadHighScores() {
+  // Evan hosts his own instance: with no JSONBin credentials the
+  // server still runs, scores just don't persist.
+  if (!API_KEY || !BIN_ID) {
+    console.log('ℹ️ JSONBin skipped (JSONBIN_KEY/JSONBIN_BIN_ID not set) — high scores will not persist.');
+    return;
+  }
   try {
     const res = await fetch(BASE_URL, {
       headers: { 'X-Master-Key': API_KEY },
     });
     const json = await res.json();
-    highScores = json.record || {};
+    highScores = toScoreStore(json.record);
     console.log('✅ High scores loaded from JSONBin');
   } catch (e) {
     console.error('❌ Failed to load high scores:', e);
@@ -41,6 +67,7 @@ async function loadHighScores() {
 
 // Save scores to JSONBin
 async function saveHighScores() {
+  if (!API_KEY || !BIN_ID) return;
   try {
     await fetch(BASE_URL, {
       method: 'PUT',
@@ -59,6 +86,9 @@ async function saveHighScores() {
 // App setup
 const app = express();
 const server = http.createServer(app);
+
+// Render health check (render.yaml healthCheckPath).
+app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 
 app.use(cors({
   origin: ['https://krazay17.github.io', 'https://justanothertree.github.io'],
@@ -79,29 +109,9 @@ const io = new Server(server, {
 });
 
 const players = {};
-const SCORES_FILE = loadHighScores();
-//const SCORES_FILE = path.resolve(__dirname, 'highScores.json');
-
-// Load scores from file
-if (fs.existsSync(SCORES_FILE)) {
-  try {
-    const raw = fs.readFileSync(SCORES_FILE, 'utf-8').trim();
-    highScores = raw ? JSON.parse(raw) : {}; // handle empty file
-    console.log('Loaded scores:', highScores);
-  } catch (e) {
-    console.error('Failed to load saved scores:', e);
-  }
-}
-
-// Save to disk
-function saveScores() {
-  try {
-    fs.writeFileSync(SCORES_FILE, JSON.stringify(highScores, null, 2));
-    console.log('Scores saved (sync)');
-  } catch (err) {
-    console.error('Error saving scores:', err);
-  }
-}
+// (No file-based score store: the old one assigned the
+// loadHighScores() Promise to a filename and passed it to
+// fs.existsSync, so the path was dead. JSONBin is the only store.)
 
 // Save on shutdown
 process.on('SIGINT', () => {
@@ -129,12 +139,25 @@ function getScores() {
 // getHostId), so all elect the same host with no extra coordination.
 // A player with no stamp yet sorts newest. Returns null when nobody
 // is in that level.
+//
+// Item 3 — server failover: a stamp host that broadcast enemy state
+// and then went silent for HOST_SILENCE_MS is skipped, so the
+// next-longest-present player becomes the effective host (the three
+// host gates below all read this function). A player with no
+// lastStateAt has never broadcast as host, so it is never skipped
+// for silence. A skipped host that resumes broadcasting is dropped
+// by the gates until the effective host goes quiet or disconnects —
+// the client-side yield-back (NetworkManager) covers the handover
+// the other way.
+const HOST_SILENCE_MS = 3000;
 function getLevelHostId(sceneKey) {
+  const now = Date.now();
   let host = null;
   let hostEnteredAt = Infinity;
   for (const [id, rec] of Object.entries(players)) {
     if (rec.data?.scene !== sceneKey) continue;
     const enteredAt = Number.isFinite(rec.data?.enteredAt) ? rec.data.enteredAt : Infinity;
+    if (Number.isFinite(rec.lastStateAt) && now - rec.lastStateAt > HOST_SILENCE_MS) continue;
     if (enteredAt < hostEnteredAt || (enteredAt === hostEnteredAt && (host === null || id < host))) {
       host = id;
       hostEnteredAt = enteredAt;
@@ -184,13 +207,33 @@ io.on('connection', (socket) => {
 
   socket.on('playerSyncRequest', (payload) => {
     const data = payload?.data;
+    // Item 1 — drop the packet unless data is an object with a
+    // string scene. A null/missing data used to store
+    // `data: undefined`, and the next playerStateRequest /
+    // playerName / playerLevel then threw reading `.location` /
+    // `.name` / `.power` off undefined and killed the process.
+    if (!data || typeof data !== 'object' || typeof data.scene !== 'string') return;
+    // Default the location so the handlers below can always write
+    // data.location.x/y (a sync without one used to crash them).
+    if (!data.location || typeof data.location !== 'object') {
+      data.location = { x: 0, y: 0 };
+    } else {
+      if (!Number.isFinite(data.location.x)) data.location.x = 0;
+      if (!Number.isFinite(data.location.y)) data.location.y = 0;
+    }
     const prev = players[socket.id];
     const isNew = !prev;
     const newScene = data && typeof data.scene === 'string' ? data.scene : null;
     // Item 2 — scene-entry stamp, server clock. A new stamp only
     // when the scene actually changed (or on first sync); a re-sync
     // in the same scene keeps the old one, so a brief reconnect does
-    // not lose host seniority. A disconnect deletes the record, so
+    // not lose host seniority. Item 4 — a multiplayer restart
+    // (payload.restart, sent by a dying host) re-stamps too: the
+    // restarting player becomes newest, so the OTHER player in the
+    // level becomes longest-present and takes over as host with its
+    // live enemy state — dead enemies stay dead, living ones keep
+    // their HP — instead of the fresh scene resetting the level.
+    // A disconnect deletes the record, so
     // a player who leaves and comes back is stamped fresh (newest).
     // The stamp is written INTO the stored data object, so it rides
     // the existing broadcasts (existingPlayers / playerJoined /
@@ -199,8 +242,13 @@ io.on('connection', (socket) => {
     // never compared: every stamp comes from this one clock, so
     // every client elects the same host.
     const sceneChanged = !prev || prev.data?.scene !== newScene;
-    const sceneEnteredAt = sceneChanged ? Date.now() : (prev.sceneEnteredAt ?? Date.now());
-    players[socket.id] = { data, lastPing: Date.now(), sceneEnteredAt };
+    const isRestart = payload.restart === true;
+    const sceneEnteredAt = (sceneChanged || isRestart) ? Date.now() : (prev.sceneEnteredAt ?? Date.now());
+    // Item 3 — carry lastStateAt across the record rebuild: the
+    // sync arrives every ~500ms and would otherwise wipe the stamp
+    // the failover check reads, so a silent host would never age
+    // out while its ghost sync kept flowing.
+    players[socket.id] = { data, lastPing: Date.now(), sceneEnteredAt, lastStateAt: prev?.lastStateAt };
     if (data && typeof data === 'object') data.enteredAt = sceneEnteredAt;
 
     // Item 5 — one room per level, joined on sync: the room follows
@@ -232,9 +280,13 @@ io.on('connection', (socket) => {
 
   socket.on('playerStateRequest', (state) => {
     if (!state || typeof state !== 'object') return;
-    if (players[socket.id]) {
-      players[socket.id].data.location.x = state.x;
-      players[socket.id].data.location.y = state.y;
+    const rec = players[socket.id];
+    // Item 1 — the record's data can be missing (a sync with no
+    // data is dropped now, but never trust it blindly): without the
+    // guard, writing .location.x off undefined killed the process.
+    if (rec?.data?.location) {
+      rec.data.location.x = state.x;
+      rec.data.location.y = state.y;
       socket.broadcast.emit('playerStateUpdate', { id: socket.id, state });
     }
   });
@@ -242,8 +294,9 @@ io.on('connection', (socket) => {
   socket.on('playerName', (payload) => {
     if (!payload || typeof payload !== 'object') return;
     const { text, color } = payload;
-    if (players[socket.id]) {
-      players[socket.id].data.name = { text, color };
+    const rec = players[socket.id];
+    if (rec?.data) {
+      rec.data.name = { text, color };
       socket.broadcast.emit('playerNamed', { id: socket.id, text, color });
     }
   });
@@ -251,8 +304,9 @@ io.on('connection', (socket) => {
   socket.on('playerLevel', (payload) => {
     if (!payload || typeof payload !== 'object') return;
     const { money, auraLevel } = payload;
-    if (players[socket.id]) {
-      players[socket.id].data.power = { money, auraLevel };
+    const rec = players[socket.id];
+    if (rec?.data) {
+      rec.data.power = { money, auraLevel };
       socket.broadcast.emit('playerLeveled', { id: socket.id, money, auraLevel });
     }
   });
@@ -331,6 +385,16 @@ io.on('connection', (socket) => {
     if (!payload || typeof payload !== 'object') return;
     if (typeof payload.sceneKey !== 'string' || !payload.sceneKey || payload.sceneKey.length > 64) return;
     if (players[socket.id].data?.scene !== payload.sceneKey) return;
+    // Item 3 — stamp the heartbeat on any well-formed state packet
+    // from a player in this level, BEFORE the host check: a resumed
+    // host re-registers as alive by sending, so it can retake
+    // authority instead of staying stale-skipped forever (without
+    // this, two hosts that both went quiet could never re-elect —
+    // only the 10s inactivity kick would save it). Stamping here
+    // cannot elect a non-host: the host check below still requires
+    // earliest non-stale, and a spammer that keeps itself fresh is
+    // by definition alive and broadcasting — a fine host candidate.
+    players[socket.id].lastStateAt = Date.now();
     if (getLevelHostId(payload.sceneKey) !== socket.id) return;
     if (!Array.isArray(payload.enemies) || payload.enemies.length > 48) return;
     const enemies = [];
@@ -419,22 +483,32 @@ io.on('connection', (socket) => {
   });
 
   socket.on('highScoreRequest', async (score) => {
-    if (score) {
+    if (score && typeof score === 'object') {
       const { level, time, player } = score;
       const parsedTime = parseFloat(time);
-
-      if (!highScores[level]) {
-        highScores[level] = {};
+      // Item 2 — prototype pollution, reproduced: a level of
+      // "__proto__" wrote onto Object.prototype, because
+      // highScores[level] resolved through the prototype chain.
+      // Score maps are null-prototype objects (see toScoreStore)
+      // and keys are validated here, so no key can ever resolve
+      // through a prototype. A bad level/player/time is dropped.
+      if (typeof level === 'string' && level && level.length <= 64
+        && typeof player === 'string' && player && player.length <= 64
+        && Number.isFinite(parsedTime)) {
+        if (!Object.hasOwn(highScores, level)) {
+          highScores[level] = Object.create(null);
+        }
+        const levelScores = highScores[level];
+        if (!Object.hasOwn(levelScores, player)) {
+          levelScores[player] = { time: parsedTime };
+          await saveHighScores(); // Save only if it's a new best
+        } else if (parsedTime < levelScores[player].time) {
+          console.log(`[highScore] ${player} on ${level}: ${parsedTime}`);
+          levelScores[player].time = parsedTime;
+          await saveHighScores(); // Save only if it's a new best
+        }
+        console.log(parsedTime);
       }
-      if (!highScores[level][player]) {
-        highScores[level][player] = { time: parsedTime };
-        await saveHighScores(); // Save only if it's a new best
-      } else if (parsedTime < highScores[level][player].time) {
-        console.log(`[highScore] ${player} on ${level}: ${parsedTime}`);
-        highScores[level][player].time = parsedTime;
-        await saveHighScores(); // Save only if it's a new best
-      }
-      console.log(parsedTime);
     }
 
     io.emit('highScoreUpdate', getScores());

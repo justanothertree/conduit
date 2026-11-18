@@ -390,6 +390,7 @@ export default class EscMenu extends Phaser.Scene {
     openNameInput() {
         this.nameInput = this.add.dom(600, 300).createFromHTML(`
             <input type="text" id="nameInput" name="name" placeholder="Enter name"
+                   aria-label="Player name"
                    style="font-size: 20px; width: 200px; padding: 5px;" />
         `).setOrigin(0.5);
         this.menuPanel.add(this.nameInput);
@@ -405,7 +406,11 @@ export default class EscMenu extends Phaser.Scene {
         domElement.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 event.stopImmediatePropagation();
-                const name = domElement.value.trim();
+                // A blank name would save as '' and display/score/chat as
+                // nothing — fall back to the default, and show it in the
+                // input so the next open matches the saved name.
+                const name = domElement.value.trim() || 'Hunter';
+                domElement.value = name;
                 GameManager.name.text = name;
                 this.nameDisplay.setText(name);
                 GameManager.save();
@@ -421,7 +426,9 @@ export default class EscMenu extends Phaser.Scene {
     destroyNameInput() {
         if (this.nameInput) {
             const domElement = this.nameInput.getChildByName('name');
-            const name = domElement.value.trim();
+            // Same blank-name fallback as the Enter handler: closing the
+            // menu saves whatever is typed, and '' would blank the name.
+            const name = domElement.value.trim() || 'Hunter';
             GameManager.name.text = name;
             this.nameDisplay.setText(name);
             GameManager.save();

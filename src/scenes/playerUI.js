@@ -416,6 +416,8 @@ export default class PlayerUI extends Phaser.Scene {
             name="textchat" 
             placeholder="Chat.."
             maxlength="200"
+            aria-label="Chat message"
+            autocomplete="off"
             style="font-size: 20px; width: 300px; padding: 5px;" />
         `);
         } else {
@@ -425,6 +427,10 @@ export default class PlayerUI extends Phaser.Scene {
         const input = this.textBox.node?.querySelector('#textchat');
         if (!input) {
             console.error('Input element not found!');
+            // The chat never opened, so release the player too — without
+            // this, player.chatting stays true and playerHandleInput
+            // freezes all movement until the next scene restart.
+            this.player.chatting = false;
             this.chatting = false;
             this.events.emit('doneChatting');
             return;

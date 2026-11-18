@@ -526,38 +526,56 @@ export default class SpawnManager {
 
     respawn(obj, x, y, health, spawnFunc) {
         if (!obj) return;
-        obj.once('die', () => {
-            const checkDistanceTimer = this.scene.time.addEvent({
-                delay: 5000, // check every 1 second (adjust if you want)
-                callback: () => {
-                    const dx = this.scene.player.x - x;
-                    const dy = this.scene.player.y - y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
+        obj.once('die', () => this.armDuckRespawn(obj, x, y, health, spawnFunc));
+    }
 
-                    if (distance > 1200) {
-                        this.scene.time.removeEvent(checkDistanceTimer);
-                        // Host-driven only (Part 2): a non-host's local
-                        // respawn would create an enemy the host doesn't
-                        // know about. The host respawns and its state
-                        // broadcast brings the puppet back on non-hosts.
-                        // Checked at fire time, not registration: if this
-                        // client BECOMES host while the timer is pending,
-                        // the respawn is legitimately theirs now. And if
-                        // a live enemy already holds this spawn point's
-                        // netId (host respawned first), don't duplicate it.
-                        if (!this.scene.network?.isHost()) return;
-                        const netId = `duck:${Math.round(x)}:${Math.round(y)}`;
-                        const existing = this.netEnemies.get(netId);
-                        if (existing && existing.active && !existing.dead) return;
-                        spawnFunc(x, y, health);
+    // Arm the duck respawn distance-check timer directly, without
+    // going through a 'die' event. Item 8: _applyPreservedDead used
+    // to call respawn() (a second once('die') listener — spawnDuck
+    // already registered one) and then emit('die'), which fired
+    // every listener and armed one timer per listener. Arming here
+    // keeps exactly one timer per duck: a second arm while one is
+    // already pending is a no-op. The timer clears its own slot
+    // when it fires the respawn or when the scene shuts down, so
+    // the next life can arm a fresh one.
+    armDuckRespawn(obj, x, y, health, spawnFunc) {
+        if (!obj || obj._duckRespawnTimer) return;
+        const checkDistanceTimer = this.scene.time.addEvent({
+            delay: 5000, // check every 1 second (adjust if you want)
+            callback: () => {
+                const dx = this.scene.player.x - x;
+                const dy = this.scene.player.y - y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance > 1200) {
+                    this.scene.time.removeEvent(checkDistanceTimer);
+                    if (obj._duckRespawnTimer === checkDistanceTimer) {
+                        obj._duckRespawnTimer = null;
                     }
-                },
-                loop: true
-            });
-            this.scene.events.once('shutdown', () => {
-                this.scene.time.removeEvent(checkDistanceTimer);
-            })
-
+                    // Host-driven only (Part 2): a non-host's local
+                    // respawn would create an enemy the host doesn't
+                    // know about. The host respawns and its state
+                    // broadcast brings the puppet back on non-hosts.
+                    // Checked at fire time, not registration: if this
+                    // client BECOMES host while the timer is pending,
+                    // the respawn is legitimately theirs now. And if
+                    // a live enemy already holds this spawn point's
+                    // netId (host respawned first), don't duplicate it.
+                    if (!this.scene.network?.isHost()) return;
+                    const netId = `duck:${Math.round(x)}:${Math.round(y)}`;
+                    const existing = this.netEnemies.get(netId);
+                    if (existing && existing.active && !existing.dead) return;
+                    spawnFunc(x, y, health);
+                }
+            },
+            loop: true
+        });
+        obj._duckRespawnTimer = checkDistanceTimer;
+        this.scene.events.once('shutdown', () => {
+            this.scene.time.removeEvent(checkDistanceTimer);
+            if (obj._duckRespawnTimer === checkDistanceTimer) {
+                obj._duckRespawnTimer = null;
+            }
         });
     }
 

@@ -38,7 +38,7 @@ export function ensureSocketConnected(player) {
     socket.once('connect', onConnect);
     // If the handshake itself fails, 'connect_error' fires — clear the flag
     // so the next caller can retry instead of wedging until page reload.
-    // socket.io retries on its own too (reconnectionAttempts: 10 in
+    // socket.io retries on its own too (reconnectionAttempts: Infinity in
     // NetworkManager); connect() is a no-op while the manager is already
     // reconnecting, so this can't stack duplicate attempts.
     socket.once('connect_error', onConnectError);
@@ -62,7 +62,11 @@ export function playerSyncNetwork(player) {
     // and ghost visibility all go stale until the next sync. The
     // 500ms throttle above bounds the outbound buffer to ~1 pending
     // packet while the transport is down, so nothing piles up.
-    player.network.socket.emit('playerSyncRequest', {
+    // Item 4 — a multiplayer restart (flagged by respawnPlayer)
+    // rides this sync as restart:true: the server re-stamps
+    // enteredAt, so the other player in the level takes over as host
+    // with live state instead of my fresh scene resetting it.
+    const syncPayload = {
         data: {
             // Scene key for per-level host election (Part 2): the host is
             // the lowest socket id among players in this scene. Sent on
@@ -73,7 +77,9 @@ export function playerSyncNetwork(player) {
             power: GameManager.power,
             stats: GameManager.stats
         }
-    });
+    };
+    if (player.network?.consumeRestartFlag?.()) syncPayload.restart = true;
+    player.network.socket.emit('playerSyncRequest', syncPayload);
 }
 
 export function playerSyncGhost(player, delta, state) {

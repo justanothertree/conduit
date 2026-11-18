@@ -44,8 +44,12 @@ export default function setupChat() {
     let fadeTimer;
     textInput.addEventListener('focus', () => {
         isChatting = true;
-        scene.input.keyboard.resetKeys();
-        scene.input.keyboard.enabled = false;
+        // No level scene is live yet during Boot/Preloader, so there is no
+        // keyboard to disable — without the guard, focusing chat during
+        // boot threw here and the player kept moving while typing.
+        const kb = scene?.input?.keyboard;
+        kb?.resetKeys();
+        if (kb) kb.enabled = false;
         clearTimeout(fadeTimer);
         messages.classList.add('active');
         messages.scrollTop = messages.scrollHeight;
@@ -53,8 +57,9 @@ export default function setupChat() {
 
     textInput.addEventListener('blur', () => {
         isChatting = false;
-        scene.input.keyboard.resetKeys();
-        scene.input.keyboard.enabled = true;
+        const kb = scene?.input?.keyboard;
+        kb?.resetKeys();
+        if (kb) kb.enabled = true;
         fadeTimer = setTimeout(()=> {
         messages.classList.remove('active');
         messages.scrollTop = messages.scrollHeight;

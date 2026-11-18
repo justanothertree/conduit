@@ -16,6 +16,23 @@ const ENEMY_BROADCAST_HZ_MS = 83; // ~12Hz host broadcast
 const ENEMY_MAX_ENTRIES = 48; // per-tick cap (levels hold 17–24)
 const ENEMY_FULL_EVERY_TICKS = 12; // full snapshot ~1s, deltas between
 const HOST_SILENCE_MS = 3000; // host failover: no state for this long = gone
+// Item 8b — failover hysteresis. A phone host whose tab is briefly
+// backgrounded has its timers throttled, so its state packets pause
+// for seconds; without a hold the election flips host every time it
+// wakes and sleeps again. HOST_HOLD_MS: once a failover has taken
+// effect, the new host keeps authority this long even if the stamp
+// host resumes sending — 10s covers a brief backgrounding (check a
+// notification, switch apps) plus the socket's reconnect time, while
+// a host that never comes back is simply never retaken. HOST_RETAKE_MS:
+// after the hold, the stamp host must show this much STEADY liveness
+// before it can retake — at 12Hz that is ~24 consecutive packets,
+// enough to prove the tab's timers are actually running again rather
+// than a single burst flushed when a throttled tab wakes.
+// HOST_STREAK_GAP_MS: a gap longer than this breaks the returning
+// host's liveness streak and restarts it.
+const HOST_HOLD_MS = 10000;
+const HOST_RETAKE_MS = 2000;
+const HOST_STREAK_GAP_MS = 1000;
 
 export default class NetworkManager extends Phaser.Events.EventEmitter {
   static instance;
@@ -49,6 +66,13 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     // (I joined after the host killed it) is removed quietly, never
     // paid. Cleared on scene change (refreshScene).
     this._netSeenAlive = new Set();
+    // Item 8b — failover hysteresis state: _failoverAt is when the
+    // effective host last stopped being the stamp host (the hold
+    // clock runs from here); _stampHostStreakStart is when the
+    // stamp host's current run of steady packets began (yield-back
+    // needs HOST_RETAKE_MS of it). Both reset on scene change.
+    this._failoverAt = null;
+    this._stampHostStreakStart = null;
     // Item 3 — blanket puppet switch is pending until the first real
     // host state packet proves a host is broadcasting. Starts true:
     // a client that loads straight into a shared level puppets on
@@ -66,16 +90,30 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     // silent host hands over within ~3s + 1s even when no sync event
     // arrives (recomputeHost no-ops when nothing changed).
     this._hostWatchdogTimer = setInterval(() => this.recomputeHost(), 1000);
+    // Item 4 — multiplayer restart handover: set by respawnPlayer()
+    // before the scene restart, consumed by the next sync (see
+    // flagRestart / consumeRestartFlag). While it is set, this
+    // client must NOT broadcast enemy state — its fresh scene is
+    // full-HP fiction, and one tick of it would reset the shared
+    // level (boss HP included) for everyone before the handover
+    // lands. Cleared when the server acks the re-stamped sync.
+    this._pendingRestart = false;
 
-    const serverURL =
-      location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+    // The server URL is configurable: VITE_SERVER_URL (from
+    // .env.production — Evan fills in his own Render URL when he
+    // hosts) wins, then localhost dev, then the shared Render box.
+    // A URL is not a secret, so .env.production is committed.
+    const serverURL = import.meta.env.VITE_SERVER_URL
+      || (location.hostname === 'localhost' || location.hostname === '127.0.0.1'
         ? 'http://localhost:3000'
-        : 'wss://webconduit.onrender.com';
+        : 'wss://webconduit.onrender.com');
 
 
     this.socket = io(serverURL, {
       reconnection: true,
-      reconnectionAttempts: 10,
+      // Infinity: the free Render tier cold-starts in ~1 min, so the
+      // client must keep retrying instead of giving up after 10.
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
     });
@@ -112,7 +150,12 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       // Initial sync request after gathering local player data
       const data = GameManager.getNetworkData(this.scene.scene.key);
 
-      this.socket.emit('playerSyncRequest', { data });
+      // Item 4 — a multiplayer restart re-syncs with restart:true
+      // (see flagRestart): the server re-stamps enteredAt, so the
+      // other player in the level becomes host with live state.
+      const syncPayload = { data };
+      if (this.consumeRestartFlag()) syncPayload.restart = true;
+      this.socket.emit('playerSyncRequest', syncPayload);
     });
 
     this.socket.on('disconnect', (reason) => {
@@ -171,6 +214,12 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     this.socket.on('playerSyncAck', (ack) => {
       const enteredAt = ack?.enteredAt;
       if (!Number.isFinite(enteredAt)) return;
+      // Item 4 — a finite ack after a restart means the server has
+      // processed a post-restart sync: the handover has landed (new
+      // stamp on the new server) or the old server ignored the flag
+      // (then the preserved-dead fallback from the previous batch
+      // applies instead). Either way, stop suppressing broadcasts.
+      if (this._pendingRestart) this._pendingRestart = false;
       if (this._sceneEnteredAt === enteredAt) return;
       this._sceneEnteredAt = enteredAt;
       this.recomputeHost();
@@ -377,12 +426,42 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
   // host: before the first packet (and on the old server, where no
   // packets arrive at all) there is nothing to fail over from, and
   // the local-sim fallback stands.
+  //
+  // Item 8b — hysteresis, so a phone host backgrounded briefly
+  // doesn't flip host back and forth. _hostStateSeenAt measures
+  // the STAMP host's liveness only (see applyEnemyState): an
+  // accepted packet from the failover host must never refresh it,
+  // or the silence clock would reset on the very next packet and
+  // the failover would un-do itself. Once a failover has taken
+  // effect (_failoverAt, maintained by recomputeHost), the new host
+  // holds authority for HOST_HOLD_MS; after that, the stamp host
+  // retakes only after HOST_RETAKE_MS of steady packets (a single
+  // burst flushed when a throttled tab wakes proves nothing).
   getEffectiveHostId() {
     const stampHost = this.getHostId();
     if (!stampHost || stampHost === this.socket?.id) return stampHost;
     if (!this._hostStateSeenAt) return stampHost;
-    if (Date.now() - this._hostStateSeenAt <= HOST_SILENCE_MS) return stampHost;
-    return this.getHostId(stampHost);
+    const now = Date.now();
+    const failover = this.getHostId(stampHost);
+    if (failover === stampHost) return stampHost;
+    // Not in failover yet: the stamp host stays effective while it
+    // has been heard from within HOST_SILENCE_MS.
+    if (!this._failoverAt) {
+      if (now - this._hostStateSeenAt <= HOST_SILENCE_MS) return stampHost;
+      return failover;
+    }
+    // In failover: hold the new host for HOST_HOLD_MS even if the
+    // stamp host resumes sending.
+    if (now - this._failoverAt < HOST_HOLD_MS) return failover;
+    // After the hold, yield back only on sustained stamp-host
+    // liveness — steady packets for HOST_RETAKE_MS with no gap
+    // over HOST_STREAK_GAP_MS.
+    if (this._stampHostStreakStart
+      && now - this._stampHostStreakStart >= HOST_RETAKE_MS
+      && now - this._hostStateSeenAt <= HOST_STREAK_GAP_MS) {
+      return stampHost;
+    }
+    return failover;
   }
 
   isHost() {
@@ -396,6 +475,17 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
   // below). First call just records it — there is no previous host
   // to transition from.
   recomputeHost() {
+    // Item 8b — maintain the failover window: when the effective
+    // host stops being the stamp host, the failover started (the
+    // hold clock runs from here); when it returns to the stamp
+    // host, the failover is over.
+    const eff = this.getEffectiveHostId();
+    const stamp = this.getHostId();
+    if (eff && stamp && eff !== stamp) {
+      if (!this._failoverAt) this._failoverAt = Date.now();
+    } else if (eff === stamp) {
+      this._failoverAt = null;
+    }
     const nowHost = this.isHost();
     if (this._isHost === undefined) {
       this._isHost = nowHost;
@@ -432,6 +522,8 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     this._sceneEnteredAt = undefined;
     this._netSeenAlive.clear();
     this._hostStateSeenAt = undefined;
+    this._failoverAt = null;
+    this._stampHostStreakStart = null;
     // A level change clears the preserved dead set — re-entry is a
     // fresh run. A same-scene restart (host death) keeps it.
     if (this._preservedDead && this._preservedDeadScene !== scene?.scene?.key) {
@@ -462,6 +554,12 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
   // registry is iterated in place, two passes, no sort, no spread.
   broadcastEnemyState() {
     if (!this.isHost()) return;
+    // Item 4 — a multiplayer restart is mid-handover: my fresh
+    // scene is full-HP fiction, and one tick of it would reset the
+    // shared level (boss HP included) for everyone before the other
+    // player takes over. Suppressed until the re-stamp ack lands
+    // (see playerSyncAck).
+    if (this._pendingRestart) return;
     const socket = this.socket;
     if (!socket?.connected) return;
     // Host death-restart: re-apply the dead set preserved at
@@ -500,6 +598,25 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     if (!entries.length) return;
     this._enemyLastSent = next;
     socket.volatile.emit('enemyStateRequest', { sceneKey, full, enemies: entries });
+  }
+
+  // Item 4 — multiplayer restart handover. respawnPlayer() calls
+  // flagRestart() before the scene restart; the next sync (the new
+  // Player's constructor sync, or a reconnect) then carries
+  // restart:true, and the server re-stamps enteredAt — the
+  // restarting player becomes newest, so the OTHER player in the
+  // level becomes longest-present and takes over as host with its
+  // live enemy state. The flag stays set until the ack for that
+  // sync lands (see playerSyncAck), and while it is set this
+  // client broadcasts no enemy state (see broadcastEnemyState).
+  // Solo restarts never set it. On the old server the flag is
+  // ignored and the preserved-dead fallback below still applies.
+  flagRestart() {
+    this._pendingRestart = true;
+  }
+
+  consumeRestartFlag() {
+    return this._pendingRestart === true;
   }
 
   // Host death-restart (Part 2): snapshot the shared dead set
@@ -555,9 +672,17 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       if (enemy.netType === 'duck') {
         const m = /^duck:(-?\d+):(-?\d+)$/.exec(netId);
         if (m) {
-          sm.respawn(enemy, Number(m[1]), Number(m[2]),
+          // Item 8 — the duck already has a once('die') respawn
+          // listener from spawnDuck. Do NOT call sm.respawn() (it
+          // would register a second one) and do NOT emit('die')
+          // (it fired every listener and armed one distance-check
+          // timer per listener). Drop the stale listener — the only
+          // 'die' listeners on a duck are respawn ones — and arm
+          // the timer directly: exactly one timer, no event, and
+          // deactivate() never pays, so no payout can double.
+          enemy.off('die');
+          sm.armDuckRespawn(enemy, Number(m[1]), Number(m[2]),
             enemy.maxHealth ?? 20, sm.spawnDuck.bind(sm));
-          enemy.emit('die');
         }
       } else if (enemy.netType === 'boss' || enemy.netType === 'boss2'
         || enemy.netType === 'miniboss') {
@@ -638,10 +763,27 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
     // yields back to it (recomputeHost flips me to non-host and the
     // packet is then applied below instead of dropped).
     if (data.id === this.getHostId()) {
-      this._hostStateSeenAt = Date.now();
+      // Item 8b — liveness streak for yield-back: a gap over
+      // HOST_STREAK_GAP_MS restarts the streak, so a single burst
+      // flushed when a throttled tab wakes can never count as
+      // sustained liveness.
+      const nowMs = Date.now();
+      if (!this._stampHostStreakStart
+        || nowMs - (this._hostStateSeenAt ?? 0) > HOST_STREAK_GAP_MS) {
+        this._stampHostStreakStart = nowMs;
+      }
+      this._hostStateSeenAt = nowMs;
       this.recomputeHost();
     }
     if (this.isHost()) return; // the host never applies — it IS the authority
+    // Item 3 — only the EFFECTIVE host's state applies: a packet
+    // from anyone else (a stale stamp host that has not resumed, a
+    // third player, a spoofed sender) is dropped. _hostStateSeenAt
+    // is refreshed ONLY from stamp-host packets (above) — never
+    // from an accepted effective-host packet, or the stamp host's
+    // silence clock would reset on the failover host's own packets
+    // and the failover would un-do itself on the next tick.
+    if (data.id !== this.getEffectiveHostId()) return;
     const sm = this.scene?.spawnManager;
     if (!sm) return;
     // Item 3 — this is a real host state packet, so puppet mode is
@@ -658,7 +800,10 @@ export default class NetworkManager extends Phaser.Events.EventEmitter {
       }
       this._puppetizeEnemies();
     }
-    this._hostStateSeenAt = Date.now();
+    // Item 8b — _hostStateSeenAt is deliberately NOT refreshed
+    // here: it measures the STAMP host's liveness, and refreshing
+    // it from the failover host's own packets reset the silence
+    // clock and un-did the failover on the next packet.
     const now = this.scene.time.now;
     const seen = new Set();
     for (const e of data.enemies) {

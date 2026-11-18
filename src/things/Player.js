@@ -370,6 +370,15 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             .some((p) => p?.myData?.scene === this.scene.scene.key);
         if (net?.socket?.connected && net.isHost() && othersInLevel) {
             net.preserveSharedEnemyState();
+            // Item 4 — multiplayer restart handover: flag the next
+            // sync as a restart so the server re-stamps enteredAt
+            // and the other player takes over as host with live
+            // state (dead enemies stay dead, living ones keep their
+            // HP). The flag also suppresses my own state broadcasts
+            // until the re-stamp ack lands — my fresh scene is
+            // full-HP fiction and must never reach the others.
+            // Solo deaths never set it.
+            net.flagRestart?.();
         }
         GameManager.useLastLocation = false;
         // Respawn at full derived max HP (was hardcoded 25, ignoring
